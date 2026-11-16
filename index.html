@@ -106,19 +106,35 @@
   .navbtn { background: var(--bar); color: var(--ink); width: 38px; height: 38px; font-size: 1.3rem; font-weight: 700; }
   .navbtn:disabled { opacity: .35; cursor: default; }
   .month-line { margin: 8px 0; }
-  .btn.joint { margin-top: 10px; }
+  .tag { font-size: .75rem; font-weight: 600; color: var(--soft); background: var(--bar); border-radius: 99px; padding: 2px 8px; margin-left: 4px; white-space: nowrap; }
+  .small-link { font-size: .85rem; margin-top: 2px; }
+  .inbox { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .inbox input, .inbox select { max-width: 170px; font-weight: 700; }
+  .gl-open { margin-top: 8px; width: 100%; color: var(--ink); }
+  .gl { background: var(--bg); border-radius: 16px; padding: 14px; margin-top: 12px; }
+  .gl h3 { margin: 0 0 4px; font-size: 1rem; }
+  .gl .actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .gl-result { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .gl-result p { margin: 6px 0; }
+  .catchup { display: grid; gap: 8px; margin-top: 10px; }
+  .catchup label { display: grid; grid-template-columns: 1fr 120px; gap: 8px; align-items: center; font-weight: 600; }
+  .catchup small { font-weight: 400; opacity: .8; }
+  .catchup input, .banner .inbox input { background: rgba(255,255,255,.7); color: #3b2a20; }
+  .recrow { display: grid; grid-template-columns: 1fr 90px 110px 34px; gap: 6px; margin: 6px 0; }
+  @media (max-width: 460px) { .recrow { grid-template-columns: 1fr 80px; } }
 </style>
 </head>
 <body>
 <main id="app"></main>
 <div class="toast" id="toast"></div>
 <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+<input type="file" id="planFile" accept=".json,application/json" hidden>
 <dialog id="settings"><form method="dialog" id="settingsForm"></form></dialog>
 
 <script>
 /* ============================================================
-   Fun Money — round 2
-   Everything is saved in THIS browser on THIS computer (localStorage).
+   Fun Money — round 3
+   Everything is saved inside the app on THIS device (localStorage).
    Nothing is sent anywhere. Use "Save a backup" to keep a copy.
 
    How the sums work: the app keeps your starting balances, your weekly
@@ -156,65 +172,71 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 /* ---------- example starting numbers (everyone changes these in Settings) ---------- */
 function defaultData(start) {
   const m0 = mondayOf(start);
+  const weekly = { groceries: 120, stockup: 20, care: 50, pets: 20, fun: 40 };
   return {
-    version: 2, confirmed: false, seq: 1,
+    version: 3, confirmed: false, seq: 1,
     settings: {
       startDate: start,
       pots: [
-        { id: 'bills', name: 'Joint account top-up', emoji: '🏠', type: 'bills', note: 'Pays the bills from the joint account. Tap the button once you’ve moved the money.' },
-        { id: 'groceries', name: 'Groceries', emoji: '🥦', type: 'build', note: 'What you pay out of your own pocket.' },
-        { id: 'pets', name: 'Pets', emoji: '🐾', type: 'build', note: '' },
-        { id: 'care', name: 'Personal care', emoji: '💇', type: 'build', note: '' },
-        { id: 'fun', name: 'Fun pot', emoji: '🎉', type: 'fun', note: 'Clothes, gifts and treats.' },
+        { id: 'groceries', name: 'Weekly shop', emoji: '🛒', type: 'build', shared: true, note: 'Log the full shop — only your share counts here.' },
+        { id: 'stockup', name: 'Bulk stock-up', emoji: '📦', type: 'build', shared: true, note: 'Big orders that arrive in lumps. Dipping below $0 is fine.' },
+        { id: 'care', name: 'Personal care', emoji: '💇', type: 'build', shared: false, note: '' },
+        { id: 'pets', name: 'Pets', emoji: '🐾', type: 'build', shared: false, note: '' },
+        { id: 'fun', name: 'Fun pot', emoji: '🎉', type: 'fun', shared: false, note: 'Clothes, gifts and treats.' },
       ],
+      myShare: 50,                 // % of a shared purchase that's yours
       paybackOn: true, funFloor: 10,
       treatGoal: 1000, treatDate: addDays(start, 120),
       oneOffs: [{ name: 'Christmas', amount: 300 }],
     },
-    // Weekly amounts, each with the Monday they start from (so changes never rewrite the past)
-    plans: [{ from: m0, income: 450, weekly: { bills: 150, groceries: 120, pets: 30, care: 50, fun: 40 } }],
+    // Weekly amounts and recurring costs, each with the Monday they start from (so changes never rewrite the past)
+    plans: [{ from: m0, income: 450, weekly, recurring: [{ name: 'Insurance', amount: 15, every: 'week' }] }],
     // Balances on the plan start date
-    opening: { savings: 2000, treat: 200, owed: 0, pots: { bills: 0, groceries: 120, pets: 30, care: 50, fun: 40 } },
-    entries: [],   // { id, seq, date, amount, pot, note }
+    opening: { savings: 2000, treat: 200, owed: 0, pots: { ...weekly } },
+    entries: [],   // { id, seq, date, amount, pot, note, split? }  split = your share (0.5) of a shared purchase
     fixes: [],     // { seq, date, target, value }  "on this date the real figure was…"
     lastSeenMonday: m0, notice: null,
+    lastBackup: null, checkins: {}, snooze: {},
   };
 }
 
-/* ---------- moving Phase 1 data over ---------- */
+/* ---------- moving older data over ---------- */
 function migrate(o) {
   if (!o || typeof o !== 'object') return null;
-  if (o.version === 2) return o;
+  if (o.version === 3) return o;
+  if (o.version === 2) return upgradeTo3(o);
   if (o.version !== 1 || !o.settings || !o.week) return null;
+  // Phase 1 data → round 2 shape, then up to round 3
   const s1 = o.settings, start = s1.startDate;
-  const d = defaultData(start);
-  d.confirmed = !!o.confirmed;
+  const d = { version: 2, confirmed: !!o.confirmed, seq: 1, settings: { startDate: start }, entries: [], fixes: [], lastSeenMonday: mondayOf(start), notice: null };
   const typeMap = { carry: 'bills', weekly: 'build', fun: 'fun' };
   d.settings.pots = s1.pots.map(p => {
     const q = { id: p.id, name: p.name, emoji: p.emoji, type: typeMap[p.type] || 'build', note: p.note || '' };
     if (p.id === 'petscar' || /pets\s*&\s*car/i.test(p.name)) { q.name = 'Pets'; q.note = ''; }
     return q;
   });
-  for (const k of ['paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) if (s1[k] !== undefined) d.settings[k] = s1[k];
+  for (const k of ['paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) d.settings[k] = s1[k];
   d.plans = [{ from: mondayOf(start), income: +s1.income, weekly: Object.fromEntries(s1.pots.map(p => [p.id, +p.weekly])) }];
   const tx = o.tx || [];
-  if (!(o.history || []).length) {
-    // Still in the first week: work the starting balances back out exactly
-    const sum = pot => tx.filter(t => t.pot === pot).reduce((a, t) => a + t.amount, 0);
-    d.opening = {
-      savings: round2(o.balances.savings + sum('oneoff:savings')), treat: round2(o.balances.treat + sum('oneoff:treat')), owed: o.balances.owed,
-      pots: Object.fromEntries(s1.pots.map(p => [p.id, round2((o.week.pots[p.id] ?? 0) + sum(p.id))])),
-    };
-    d.entries = tx.map(t => ({ id: t.id, seq: d.seq++, date: t.date, amount: t.amount, pot: t.pot, note: t.note || '' }));
-  } else {
-    // Older data: keep settings and today's balances, start the list fresh
-    const t = today();
-    d.settings.startDate = t;
-    d.plans[0].from = mondayOf(t);
-    d.opening = { savings: o.balances.savings, treat: o.balances.treat, owed: o.balances.owed, pots: { ...o.week.pots } };
-    d.lastSeenMonday = mondayOf(t);
-    d.notice = { kind: 'moved' };
-  }
+  const sum = pot => tx.filter(t => t.pot === pot).reduce((a, t) => a + t.amount, 0);
+  d.opening = {
+    savings: round2(o.balances.savings + sum('oneoff:savings')), treat: round2(o.balances.treat + sum('oneoff:treat')), owed: o.balances.owed,
+    pots: Object.fromEntries(s1.pots.map(p => [p.id, round2((o.week.pots[p.id] ?? 0) + sum(p.id))])),
+  };
+  d.entries = tx.map(t => ({ id: t.id, seq: d.seq++, date: t.date, amount: t.amount, pot: t.pot, note: t.note || '' }));
+  return upgradeTo3(d);
+}
+// Round 3: the joint-account top-up is gone, pots can be shared, recurring costs live in the plan
+function upgradeTo3(d) {
+  const gone = d.settings.pots.filter(p => p.type === 'bills').map(p => p.id);
+  d.settings.pots = d.settings.pots.filter(p => p.type !== 'bills').map(p => ({ shared: false, ...p }));
+  d.settings.myShare = d.settings.myShare ?? 50;
+  for (const pl of d.plans) { for (const id of gone) delete pl.weekly[id]; pl.recurring = pl.recurring || []; }
+  for (const id of gone) delete d.opening.pots?.[id];
+  d.entries = d.entries.filter(e => !gone.includes(e.pot) && e.dir !== 'in');
+  d.fixes = d.fixes.filter(f => !gone.some(id => f.target === 'pot:' + id));
+  d.lastBackup = d.lastBackup || null; d.checkins = d.checkins || {}; d.snooze = d.snooze || {};
+  d.version = 3;
   return d;
 }
 
@@ -223,7 +245,7 @@ let D, C; // D = what's stored, C = what's calculated from it
 function load() { try { const raw = localStorage.getItem(KEY); if (raw) return migrate(JSON.parse(raw)); } catch (e) {} return null; }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) { toast('Hmm, I could not save in this browser. Try “Save a backup”.'); } }
 
-/* ---------- the engine: replay every week from the start ---------- */
+/* ---------- the plan: weekly amounts, recurring costs, shared pots ---------- */
 function planFor(d, monday) {
   const ps = d.plans.slice().sort((a, b) => a.from < b.from ? -1 : 1);
   let p = ps[0];
@@ -232,18 +254,25 @@ function planFor(d, monday) {
 }
 const weeklyOf = (plan, id) => +(plan.weekly?.[id] || 0);
 const totalWeekly = (d, plan) => d.settings.pots.reduce((t, p) => t + weeklyOf(plan, p.id), 0);
+const perWeek = r => { const a = +r.amount || 0; return r.every === 'month' ? a * 12 / 52 : r.every === 'year' ? a / 52 : r.every === 'fortnight' ? a / 2 : a; };
+const recurringWeekly = plan => round2((plan.recurring || []).reduce((t, r) => t + perWeek(r), 0));
+const shareFrac = d => Math.min(1, Math.max(0.01, (+d.settings.myShare || 50) / 100));
+// The other person's expected half of the shared pots each week (you pay it now, it's owed back)
+const partnerWeekly = (d, plan) => round2(d.settings.pots.filter(p => p.shared).reduce((t, p) => t + weeklyOf(plan, p.id) * (1 - shareFrac(d)) / shareFrac(d), 0));
+// The gentle savings drip: + means savings goes down each week
+const expectedDrip = (d, plan) => round2(totalWeekly(d, plan) + recurringWeekly(plan) + partnerWeekly(d, plan) - plan.income);
 
+/* ---------- the engine: replay every week from the start ---------- */
 function compute(d, upto) {
   const s = d.settings, start = s.startDate, cur = mondayOf(upto);
-  const known = new Set(s.pots.filter(p => p.type !== 'bills').map(p => p.id)); // the joint-account transfer has no balance
-  const billIds = new Set(s.pots.filter(p => p.type === 'bills').map(p => p.id));
+  const known = new Set(s.pots.map(p => p.id));
   const fun = s.pots.find(p => p.type === 'fun');
   const bal = { savings: +d.opening.savings || 0, treat: +d.opening.treat || 0, owed: +d.opening.owed || 0 };
   const pots = {}; for (const p of s.pots) pots[p.id] = +(d.opening.pots?.[p.id] ?? 0);
   const months = {};
-  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, added: {}, toTreat: 0, oneSav: 0, oneTreat: 0, topups: 0, count: 0 });
+  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 });
   const add = (o, k, v) => { o[k] = round2((o[k] || 0) + v); };
-  for (const p of s.pots) add(M(start.slice(0, 7)).planned, p.id, p.type === 'bills' ? weeklyOf(planFor(d, mondayOf(start)), p.id) : pots[p.id]); // the starting amounts count as this month's plan
+  for (const p of s.pots) add(M(start.slice(0, 7)).planned, p.id, pots[p.id]); // the starting amounts count as this month's plan
   let funBudget = fun ? pots[fun.id] : 0;
 
   const events = [
@@ -260,11 +289,13 @@ function compute(d, upto) {
       return;
     }
     const m = M(ev.date.slice(0, 7)); m.count++;
-    if (ev.dir === 'in' && billIds.has(ev.pot)) { add(m.added, ev.pot, ev.amount); return; } // joint account top-up ticked
-    if (ev.dir === 'in') { if (known.has(ev.pot)) { pots[ev.pot] = round2(pots[ev.pot] + ev.amount); add(m.added, ev.pot, ev.amount); } return; } // money put into a pot
     if (ev.pot === 'oneoff:savings') { bal.savings -= ev.amount; m.oneSav = round2(m.oneSav + ev.amount); }
     else if (ev.pot === 'oneoff:treat') { bal.treat -= ev.amount; m.oneTreat = round2(m.oneTreat + ev.amount); }
-    else if (known.has(ev.pot)) { pots[ev.pot] = round2(pots[ev.pot] - ev.amount); add(m.spent, ev.pot, ev.amount); }
+    else if (known.has(ev.pot)) {
+      const mine = ev.split != null ? round2(ev.amount * ev.split) : ev.amount, theirs = round2(ev.amount - mine);
+      pots[ev.pot] = round2(pots[ev.pot] - mine); add(m.spent, ev.pot, mine);
+      if (theirs) { bal.savings -= theirs; bal.owed += theirs; m.owedAdded = round2(m.owedAdded + theirs); } // you paid their half; it's owed back
+    }
   }
 
   const history = [];
@@ -288,10 +319,11 @@ function compute(d, upto) {
         let nb = w;
         if (s.paybackOn && over > 0) { nb = Math.max(Math.min(+s.funFloor || 0, w), w - over); payback = round2(w - nb); }
         pots[p.id] = nb; funBudget = nb; add(m.planned, p.id, nb);
-      } else if (p.type === 'bills') { pots[p.id] = 0; add(m.planned, p.id, w); } // fixed transfer to the joint account
-      else { pots[p.id] = round2(pots[p.id] + w); add(m.planned, p.id, w); } // everything else builds up
+      } else { pots[p.id] = round2(pots[p.id] + w); add(m.planned, p.id, w); } // everything else builds up
     }
-    bal.savings += plan.income - totalWeekly(d, plan) + payback; // Monday top-up from savings
+    const rec = recurringWeekly(plan);
+    bal.savings += plan.income - totalWeekly(d, plan) - rec + payback; // income in, pots and recurring costs out
+    m.recurring = round2(m.recurring + rec);
     m.topups++;
     history.push({ start: monday, funBudget: wkBudget, funLeft, toTreat, over, payback });
     monday = next;
@@ -302,15 +334,25 @@ function compute(d, upto) {
 }
 const recalc = () => { C = compute(D, today()); };
 
-/* ---------- entries ---------- */
-function addEntry(amount, pot, note, date, dir) {
-  amount = round2(+amount); if (!amount) return;
-  const e = { id: uid(), seq: D.seq++, date, amount, pot, note: note || '' };
-  if (dir === 'in') e.dir = 'in';
-  D.entries.push(e);
-  save();
+/* ---------- entries & fixes ---------- */
+const potById = id => D.settings.pots.find(p => p.id === id);
+function makeEntry(amount, pot, note, date, shared) {
+  const e = { id: uid(), seq: D.seq++, date, amount: round2(+amount), pot, note: note || '' };
+  if (shared && potById(pot)?.shared) e.split = shareFrac(D);
+  return e;
+}
+function addEntry(amount, pot, note, date, shared) {
+  if (!round2(+amount)) return null;
+  const e = makeEntry(amount, pot, note, date, shared);
+  D.entries.push(e); save();
+  return e;
 }
 function removeEntry(id) { D.entries = D.entries.filter(e => e.id !== id); save(); recalc(); render(); toast('Removed. All tidy ✨'); }
+const fixDate = () => { const t = today(); return t < D.settings.startDate ? D.settings.startDate : t; };
+function addFix(target, value) { D.fixes.push({ seq: D.seq++, date: fixDate(), target, value: round2(+value) }); }
+// How much was added to "owed to me" this week
+const owedThisWeek = () => round2(D.entries.filter(e => e.split != null && e.date >= C.weekStart && e.date <= addDays(C.weekStart, 6) && e.date >= D.settings.startDate)
+  .reduce((t, e) => t + (e.amount - round2(e.amount * e.split)), 0));
 
 /* ---------- friendly words ---------- */
 function funMessage(left, budget) {
@@ -324,10 +366,16 @@ function funMessage(left, budget) {
 const cheers = ['Logged! 🎉', 'Nice one! 🌟', 'Done & dusted ✨', 'Got it! 💛', 'Sorted! 🙌'];
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : (a > 0 ? 100 : 0);
 const potLabel = id => id === 'oneoff:savings' ? '✈️ One-off (savings)' : id === 'oneoff:treat' ? '🎁 One-off (Treat Fund)'
-  : (p => p ? p.emoji + ' ' + p.name : 'Removed pot')(D.settings.pots.find(p => p.id === id));
+  : (p => p ? p.emoji + ' ' + p.name : 'Removed pot')(potById(id));
+const shareLabel = () => +D.settings.myShare === 50 ? 'Shared 50/50' : `Shared (my share ${+D.settings.myShare}%)`;
+function runwayText(savings, drip) {
+  if (!(drip > 0)) return 'Savings is growing — no runway worries 🌱';
+  const w = Math.floor(savings / drip);
+  return w >= 104 ? `about ${Math.floor(w / 52)} years (${w} weeks)` : `about ${w} weeks`;
+}
 
 /* ---------- drawing the screen ---------- */
-let qDate = null, viewMonth = null;
+let qDate = null, viewMonth = null, qShared = true, fixPot = null, glOpen = false, glResult = null;
 
 function render() {
   const s = D.settings, b = C.bal, tdy = today();
@@ -337,25 +385,19 @@ function render() {
   const thisPlan = planFor(D, C.weekStart);
   if (!qDate || qDate > tdy || qDate < s.startDate) qDate = tdy < s.startDate ? s.startDate : tdy;
   const yest = addDays(tdy, -1);
+  const sharedPots = s.pots.filter(p => p.shared);
 
   let h = `<header><h1>Week of ${nice(C.weekStart)} · ${daysToMonday === 1 ? 'recharges tomorrow' : 'recharges in ' + daysToMonday + ' days'}</h1>
     <button class="icon-btn" id="openSettings">⚙️ Settings</button></header>`;
-
-  // banners
-  const n = D.notice;
-  if (n?.kind === 'catchup') h += banner(`<p><strong>Welcome back! 💛</strong></p><p>I’ve caught up ${n.weeks} weeks for you and your pots are fresh. Log anything from the past few weeks whenever it suits — I’ll slot it into the right week.</p>`, 'Lovely, thanks');
-  else if (n?.kind === 'newweek') { const last = C.history[C.history.length - 1]; h += banner(`<p><strong>New week, full pots! 🌈</strong></p>${last ? lastWeekLines(last) : ''}`, 'Let’s go'); }
-  else if (n?.kind === 'moved') h += banner(`<p><strong>New version, same you 🌱</strong></p><p>I kept your settings and balances. Your entries list starts fresh from today.</p>`, 'Great');
-  if (!D.confirmed) h += `<div class="banner"><p><strong>Quick check 👀</strong> These are example numbers. Pop your own in (or load a backup) and you’re away.</p>
-      <div class="actions"><button class="btn" id="checkNums">Check my numbers</button><button class="btn ghost" id="confirmNums">They’re right</button></div></div>`;
-  if (tdy < s.startDate) h += `<div class="banner"><p>Your plan starts on <strong>${nice(s.startDate)}</strong>. Until then, have a play!</p></div>`;
+  h += banners();
 
   // hero
   h += `<section class="card hero"><div class="label">FUN MONEY THIS WEEK</div>
     <div class="big" id="funBig">${money(Math.max(0, funLeft))}</div>
     <div class="bar"><span style="width:${pct(funLeft, funBudget)}%"></span></div>
     <div class="msg">${funMessage(funLeft, funBudget)}</div>
-    ${funLeft < 0 ? `<div class="note">${money(-funLeft)} extra came from savings — all covered.</div>` : ''}</section>`;
+    ${funLeft < 0 ? `<div class="note">${money(-funLeft)} extra came from savings — all covered.</div>` : ''}
+    ${fp ? fixRow(fp, funLeft, true) : ''}</section>`;
 
   // quick add
   const dateChip = (val, label) => `<button type="button" class="chip small${qDate === val ? ' on' : ''}" data-date="${val}">${label}</button>`;
@@ -369,68 +411,68 @@ function render() {
         ${tdy >= s.startDate ? dateChip(tdy, 'Today') : ''}
         ${yest >= s.startDate ? dateChip(yest, 'Yesterday') : ''}
         <label class="chip small datepick${qDate !== tdy && qDate !== yest ? ' on' : ''}">📅 <input type="date" id="qDate" value="${qDate}" min="${s.startDate}" max="${tdy}" aria-label="Pick a date"></label>
+        ${sharedPots.length ? `<button type="button" class="chip small${qShared ? ' on' : ''}" id="qShared" aria-pressed="${qShared}">👫 ${shareLabel()}</button>` : ''}
       </div>
-      <div class="chips">${s.pots.filter(p => p.type !== 'bills').map(p => `<button type="button" class="chip" data-pot="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`).join('')}</div>
+      <div class="chips">${s.pots.filter(p => p.type !== 'fun').concat(s.pots.filter(p => p.type === 'fun')).map(p => `<button type="button" class="chip" data-pot="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`).join('')}</div>
       <div class="chips">
         <button type="button" class="chip small" data-pot="oneoff:savings">✈️ One-off from savings</button>
         <button type="button" class="chip small" data-pot="oneoff:treat">🎁 One-off from Treat Fund</button>
       </div>
-      <div class="note">Type the amount, then tap where it came from. Logging for <strong>${qDate === tdy ? 'today' : nice(qDate)}</strong>. A refund? Type a minus, like −20.</div>
+      <div class="note">Type the amount, then tap where it came from. Logging for <strong>${qDate === tdy ? 'today' : nice(qDate)}</strong>.
+        ${sharedPots.length ? (qShared ? `For ${sharedPots.map(p => esc(p.name)).join(' & ')}, type the <strong>full</strong> amount — only your share counts.` : 'Shared is off: the whole amount counts as yours.') : ''}
+        A refund? Type a minus, like −20.</div>
     </form></section>`;
 
   // three lines
   const build = s.pots.filter(p => p.type === 'build');
   const evLeft = build.reduce((t, p) => t + Math.max(0, C.pots[p.id] ?? 0), 0);
+  const owedWk = owedThisWeek();
   h += `<section class="card summary"><h2>This week in three lines</h2>
     <p>🎉 ${money(Math.max(0, funLeft))} fun money left, ${daysToMonday} ${daysToMonday === 1 ? 'day' : 'days'} till it recharges.</p>
-    <p>🛒 Everyday pots: ${money(evLeft)} available.${s.pots.filter(p => p.type === 'bills').every(p => jointThisWeek(p.id) >= weeklyOf(thisPlan, p.id)) ? ' 🏠 Joint account topped up ✓' : ''}</p>
+    <p>🛒 Everyday pots: ${money(evLeft)} available.${owedWk > 0 ? ` 🤝 +${money(owedWk)} owed to you.` : ''}</p>
     <p>🎁 Treat Fund ${money(b.treat)} of ${money(s.treatGoal)} · 💰 Savings ${money(b.savings)}.</p></section>`;
 
   // pots
   h += `<section class="card"><h2>Your pots</h2>`;
-  for (const p of s.pots) {
-    if (p.type === 'fun') continue;
+  for (const p of build) {
     const left = C.pots[p.id] ?? 0, w = weeklyOf(thisPlan, p.id);
-    if (p.type === 'bills') {
-      const done = jointThisWeek(p.id);
-      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(done)} of ${money(w)}</span></div>
-        <div class="bar teal"><span style="width:${pct(done, w)}%"></span></div>
-        ${done >= w ? `<div class="note"><strong>Done for this week 🎉</strong> Bills are covered.</div>`
-          : `<div class="note">${esc(p.note)}</div><button type="button" class="btn joint" data-joint="${esc(p.id)}">✓ I’ve put in ${money(round2(w - done))}</button>`}</div>`;
-    } else {
-      const weeks = w > 0 ? Math.floor(left / w) : 0;
-      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(Math.max(0, left))} available</span></div>
-        <div class="bar teal"><span style="width:${pct(left, w)}%"></span></div>
-        <div class="note">${left < 0 ? `Borrowing ${money(-left)} from next week — it catches up on Monday 🌱`
-          : [weeks >= 2 ? `About ${weeks} weeks’ worth saved up.` : `Tops up ${money(w)} every Monday.`, esc(p.note)].filter(Boolean).join(' ')}</div></div>`;
-    }
+    const weeks = w > 0 ? Math.floor(left / w) : 0;
+    h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}${p.shared ? ' <span class="tag">👫 shared</span>' : ''}</span><span class="pot-amt">${money(Math.max(0, left))} available</span></div>
+      <div class="bar teal"><span style="width:${pct(left, w)}%"></span></div>
+      <div class="note">${left < 0 ? `Borrowing ${money(-left)} from next week — it catches up on Monday 🌱`
+        : [weeks >= 2 ? `About ${weeks} weeks’ worth saved up.` : `Tops up ${money(w)} every Monday.`, esc(p.note)].filter(Boolean).join(' ')}</div>
+      ${fixRow(p, left)}</div>`;
   }
-  h += `</section>`;
+  h += greenLight(thisPlan) + `</section>`;
 
   h += monthCard();
 
   // money corner
   const planned = s.oneOffs.reduce((t, o) => t + (+o.amount || 0), 0);
-  const daysToVisit = daysBetween(tdy, s.treatDate);
-  const drip = round2(totalWeekly(D, thisPlan) - thisPlan.income);
+  const daysTo = daysBetween(tdy, s.treatDate);
+  const drip = expectedDrip(D, thisPlan);
   h += `<section class="card"><h2>Money corner</h2>
     <div class="pot"><div class="pot-top"><span class="pot-name">🎁 Treat Fund</span><span class="pot-amt">${money(b.treat)} of ${money(s.treatGoal)}</span></div>
       <div class="bar gold"><span style="width:${pct(b.treat, s.treatGoal)}%"></span></div>
-      <div class="note">${daysToVisit > 0 ? `${daysToVisit} days to go (${nice(s.treatDate)}) ✈️` : 'Treat time! 🥳'} Leftover fun money lands here.</div></div>
+      <div class="note">${daysTo > 0 ? `${daysTo} days to go (${nice(s.treatDate)}) ✈️` : 'Treat time! 🥳'} Leftover fun money lands here.</div></div>
     <div class="grid2">
       <div class="stat"><div class="k">💰 Savings</div><div class="v">${money(b.savings)}</div><div class="note">${planned ? `${money(b.savings - planned)} after planned one-offs` : ''}</div></div>
-      <div class="stat"><div class="k">🤝 Owed to me</div><div class="v">${money(b.owed)}</div><div class="note">Not counted as spendable.</div></div>
+      <div class="stat"><div class="k">🤝 Owed to me</div><div class="v">${money(b.owed)}</div><div class="note">${owedWk > 0 ? `+${money(owedWk)} this week. ` : ''}Not counted as spendable.</div></div>
     </div>
     ${s.oneOffs.length ? `<div class="note" style="margin-top:10px">Planned from savings: ${s.oneOffs.map(o => `${esc(o.name)} ${money(o.amount)}`).join(' · ')}</div>` : ''}
-    ${drip > 0 ? `<div class="note">Each Monday ${money(drip)} tops up your pots from savings.</div>` : ''}</section>`;
+    <div class="note">${drip > 0 ? `💧 Gentle savings drip: about ${money(drip)} a week. That’s the plan doing its job.` : `🌱 Savings grows by about ${money(-drip)} a week.`}
+      ${(thisPlan.recurring || []).length ? ` Includes ${thisPlan.recurring.map(r => esc(r.name)).join(', ')}, counted automatically.` : ''}</div></section>`;
 
   // recent entries (last 14 days)
   const since = addDays(tdy, -13);
   const recent = D.entries.filter(e => e.date >= since).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.seq - a.seq);
   if (recent.length) {
     h += `<section class="card"><h2>Recent entries</h2>
-      ${recent.map(t => `<div class="tx"><span>${t.dir === 'in' ? '➕ Put into ' : ''}${esc(potLabel(t.pot))}${t.note ? ' · ' + esc(t.note) : ''}<br><span class="note">${nice(t.date)}</span></span>
-        <span><strong>${t.dir === 'in' ? '+' + money(t.amount) : t.amount < 0 ? 'refund ' + money(-t.amount) : money(t.amount)}</strong> <button data-undo="${t.id}" aria-label="Remove">✕</button></span></div>`).join('')}</section>`;
+      ${recent.map(t => {
+        const mine = t.split != null ? round2(t.amount * t.split) : null;
+        return `<div class="tx"><span>${esc(potLabel(t.pot))}${t.note ? ' · ' + esc(t.note) : ''}<br><span class="note">${nice(t.date)}${mine != null ? ` · your share ${money(mine)}, ${money(t.amount - mine)} owed to you` : ''}</span></span>
+        <span><strong>${t.amount < 0 ? 'refund ' + money(-t.amount) : money(t.amount)}</strong> <button data-undo="${t.id}" aria-label="Remove">✕</button></span></div>`;
+      }).join('')}</section>`;
   }
 
   h += `<footer><button id="backupBtn">💾 Save a backup</button><button id="restoreBtn">📂 Load a backup</button></footer>`;
@@ -438,13 +480,82 @@ function render() {
   wire();
 }
 
-// How much has gone into the joint account this week
-function jointThisWeek(id) {
-  const end = addDays(C.weekStart, 6);
-  return round2(D.entries.filter(e => e.pot === id && e.dir === 'in' && e.date >= C.weekStart && e.date <= end).reduce((t, e) => t + e.amount, 0));
+// "✏️ Fix" on any pot: this is really what's left
+function fixRow(p, left, hero) {
+  if (fixPot !== p.id) return `<button type="button" class="linkish small-link" data-fix="${esc(p.id)}">✏️ ${hero ? 'Not quite right? Fix it' : 'Fix'}</button>`;
+  return `<div class="inbox"><label class="note" for="fixAmt">This is really what’s left:</label>
+    <input id="fixAmt" type="number" inputmode="decimal" step="0.01" value="${round2(left)}">
+    <button type="button" class="btn" id="fixGo">Save</button><button type="button" class="linkish" id="fixCancel">cancel</button></div>`;
 }
-const monthTarget = id => Math.round(weeklyOf(planFor(D, C.weekStart), id) * 52 / 12);
 
+// 🚦 Green light check: never blocks, just shows the effect
+function greenLight(plan) {
+  const build = D.settings.pots.filter(p => p.type === 'build');
+  if (!build.length) return '';
+  if (!glOpen) return `<button type="button" class="btn ghost gl-open" id="glOpen">🚦 Thinking of a big order? Green light check</button>`;
+  let h = `<div class="gl"><h3>🚦 Green light check</h3>
+    <div class="inbox"><input id="glAmt" type="number" inputmode="decimal" step="0.01" placeholder="$0" aria-label="Order amount" value="${glResult ? glResult.amount : ''}">
+    <select id="glPot" aria-label="Which pot">${build.map(p => `<option value="${esc(p.id)}"${glResult?.pot === p.id ? ' selected' : ''}>${esc(p.emoji)} ${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="actions"><button type="button" class="btn" id="glCheck">Check it</button><button type="button" class="linkish" id="glClose">close</button></div>`;
+  if (glResult) {
+    const r = glResult, p = potById(r.pot);
+    h += `<div class="gl-result"><p><strong>💚 Go ahead!</strong> ${esc(p.name)} goes from ${money(r.before)} to ${money(r.after)}.</p>
+      ${r.theirs ? `<p>${money(r.mine)} is your share; ${money(r.theirs)} goes on “owed to me”.</p>` : ''}
+      <p>It refills by about ${money(r.weekly)} a week${r.after < 0 ? `, so it’s back above $0 in about ${r.weeksBack} ${r.weeksBack === 1 ? 'week' : 'weeks'}` : ''}.</p>
+      <p>Savings runway: ${r.runwayBefore === r.runwayAfter ? `still ${r.runwayAfter}` : `${r.runwayBefore} → ${r.runwayAfter}`}.</p>
+      <div class="actions"><button type="button" class="btn" id="glLog">Log it now</button></div></div>`;
+  }
+  return h + `</div>`;
+}
+function checkGreenLight(amount, pot) {
+  const plan = planFor(D, C.weekStart), drip = expectedDrip(D, plan);
+  const e = makeEntry(amount, pot, '', today(), true); D.seq--; // just a "what if", not saved
+  const after = compute({ ...D, entries: D.entries.concat(e) }, today());
+  const mine = e.split != null ? round2(e.amount * e.split) : e.amount;
+  const weekly = weeklyOf(plan, pot), a = after.pots[pot];
+  return { amount: e.amount, pot, before: C.pots[pot], after: a, mine, theirs: round2(e.amount - mine), weekly,
+    weeksBack: a < 0 && weekly > 0 ? Math.ceil(-a / weekly) : 0,
+    runwayBefore: runwayText(C.bal.savings, drip), runwayAfter: runwayText(after.bal.savings, drip) };
+}
+
+/* ---------- banners at the top ---------- */
+function banners() {
+  const s = D.settings, n = D.notice, tdy = today();
+  let h = '';
+  if (n?.kind === 'catchup') {
+    const pots = s.pots.filter(p => p.type === 'fun').concat(s.pots.filter(p => p.type === 'build'));
+    h += `<div class="banner"><p><strong>Welcome back! 💛</strong></p>
+      <p>Lovely to see you. It’s been ${n.weeks} weeks — fancy giving me one rough guess per pot? Roughly what did you spend while you were away? Skip any you’re not sure of.</p>
+      <div class="catchup">${pots.map(p => `<label><span>${esc(p.emoji)} ${esc(p.name)}${p.shared ? ' <small>(full amount, I’ll split it)</small>' : ''}</span>
+        <input type="number" inputmode="decimal" step="0.01" placeholder="$0" data-cu="${esc(p.id)}"></label>`).join('')}</div>
+      <div class="actions"><button class="btn" id="cuSave">Save my guesses</button><button class="btn ghost" data-dismiss>Skip</button></div></div>`;
+  } else if (n?.kind === 'newweek') {
+    const last = C.history[C.history.length - 1];
+    h += banner(`<p><strong>New week, full pots! 🌈</strong></p>${last ? lastWeekLines(last) : ''}`, 'Let’s go');
+  } else if (n?.kind === 'moved') h += banner(`<p><strong>New version, same you 🌱</strong></p><p>I kept your settings and balances.</p>`, 'Great');
+
+  if (!D.confirmed) h += `<div class="banner"><p><strong>${D.planLoaded ? 'Your new plan is in ✨' : 'Quick check 👀'}</strong> ${D.planLoaded
+      ? 'Have a look at your pots and in ⚙️ Settings. Change anything that’s not right, then tap “They’re right”.'
+      : 'These are example numbers. Pop your own in (or load a backup or your plan file) and you’re away.'}</p>
+      <div class="actions"><button class="btn" id="checkNums">Check my numbers</button><button class="btn ghost" id="confirmNums">They’re right</button></div></div>`;
+  if (tdy < s.startDate) h += `<div class="banner"><p>Your plan starts on <strong>${nice(s.startDate)}</strong>. Until then, have a play!</p></div>`;
+
+  // Monthly savings check-in (not in the plan's first month)
+  const mk = tdy.slice(0, 7);
+  if (mk > s.startDate.slice(0, 7) && !D.checkins[mk] && !(D.snooze.checkin >= tdy)) {
+    h += `<div class="banner"><p><strong>💰 Monthly savings check-in</strong></p>
+      <p>What does your savings account say today? My guess is about ${money(C.bal.savings)}.</p>
+      <div class="inbox"><input id="ciAmt" type="number" inputmode="decimal" step="0.01" placeholder="$0" aria-label="Real savings balance"></div>
+      <div class="actions"><button class="btn" id="ciSave">Check it</button><button class="btn ghost" id="ciLater">Not now</button></div></div>`;
+  }
+  // Gentle monthly backup reminder
+  const since = D.lastBackup || s.startDate;
+  if (daysBetween(since, tdy) >= 30 && !(D.snooze.backup >= tdy)) {
+    h += `<div class="banner"><p><strong>💾 Little reminder</strong> It’s been a while since your last backup. It takes five seconds and keeps your numbers safe.</p>
+      <div class="actions"><button class="btn" id="bkNow">Save a backup</button><button class="btn ghost" id="bkLater">Later</button></div></div>`;
+  }
+  return h;
+}
 function banner(inner, btn) { return `<div class="banner">${inner}<div class="actions"><button class="btn" data-dismiss>${btn}</button></div></div>`; }
 
 function lastWeekLines(w) {
@@ -454,33 +565,27 @@ function lastWeekLines(w) {
     <p>${w.payback > 0 ? `💛 This week’s fun pot is a bit smaller (${money(w.payback)} less) to balance things out.` : '🌱 Your other pots topped up and carried on growing.'}</p>`;
 }
 
-
 function monthCard() {
   const s = D.settings, startM = s.startDate.slice(0, 7), nowM = today().slice(0, 7);
   if (!viewMonth) viewMonth = nowM;
-  const m = C.months[viewMonth] || { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, topups: 0, count: 0 };
+  const m = C.months[viewMonth] || { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 };
   const canBack = viewMonth > startM, canFwd = viewMonth < nowM;
   let h = `<section class="card"><div class="month-head"><h2>${viewMonth === nowM ? 'This month' : 'Month'} · ${monthName(viewMonth)}</h2>
     <span><button class="navbtn" data-month="-1" ${canBack ? '' : 'disabled'} aria-label="Previous month">‹</button>
     <button class="navbtn" data-month="1" ${canFwd ? '' : 'disabled'} aria-label="Next month">›</button></span></div>`;
   for (const p of s.pots) {
-    const spent = m.spent[p.id] || 0, added = m.added?.[p.id] || 0, plan = round2((m.planned[p.id] || 0) + added);
-    const extra = added ? ` Includes ${money(added)} you put in 💪` : '';
-    if (p.type === 'bills') {
-      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(added)} of ${money(monthTarget(p.id))}</span></div>
-        <div class="bar teal"><span style="width:${pct(added, monthTarget(p.id))}%"></span></div>
-        <div class="note">${added ? 'Put into the joint account this month 💪' : 'Your top-ups this month will show here.'}</div></div>`;
-    } else {
-      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(spent)} of ${money(plan)}</span></div>
-        <div class="bar violet"><span style="width:${pct(spent, plan)}%"></span></div>
-        ${spent > plan && p.type === 'build' ? `<div class="note">Used some saved-up money — that’s what it’s for 🌼${extra}</div>` : extra ? `<div class="note">${extra.trim()}</div>` : ''}</div>`;
-    }
+    const spent = m.spent[p.id] || 0, plan = m.planned[p.id] || 0;
+    h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(spent)} of ${money(plan)}</span></div>
+      <div class="bar violet"><span style="width:${pct(spent, plan)}%"></span></div>
+      ${spent > plan && p.type === 'build' ? `<div class="note">Used some saved-up money — that’s what it’s for 🌼</div>` : ''}</div>`;
   }
   const extras = [];
   if (m.toTreat > 0) extras.push(`🎁 ${money(m.toTreat)} went to your Treat Fund this month!`);
+  if (m.owedAdded) extras.push(`🤝 ${money(m.owedAdded)} added to “owed to me” this month.`);
   if (m.oneSav || m.oneTreat) extras.push(`✈️ One-offs: ${[m.oneSav ? money(m.oneSav) + ' from savings' : '', m.oneTreat ? money(m.oneTreat) + ' from the Treat Fund' : ''].filter(Boolean).join(' · ')}`);
+  if (m.recurring) extras.push(`🔁 ${money(m.recurring)} of recurring costs, counted automatically.`);
   extras.push(m.count >= 5 ? `✨ You logged ${m.count} things this month — lovely tracking.` : m.topups ? `🌼 Your pots topped up ${m.topups} ${m.topups === 1 ? 'time' : 'times'} this month.` : '🌱 A fresh month, ready to go.');
-  h += extras.map(x => `<p class="month-line">${x}</p>`).join('') + `<div class="note">Spent next to planned top-ups for the calendar month.</div></section>`;
+  h += extras.map(x => `<p class="month-line">${x}</p>`).join('') + `<div class="note">Your share spent, next to the planned top-ups for the calendar month.</div></section>`;
   return h;
 }
 
@@ -488,7 +593,7 @@ function monthCard() {
 function wire() {
   $('#openSettings').onclick = openSettings;
   $('#checkNums') && ($('#checkNums').onclick = openSettings);
-  $('#confirmNums') && ($('#confirmNums').onclick = () => { D.confirmed = true; save(); render(); toast('Brilliant — numbers locked in 🙌'); });
+  $('#confirmNums') && ($('#confirmNums').onclick = () => { D.confirmed = true; D.planLoaded = false; save(); render(); toast('Brilliant — numbers locked in 🙌'); confetti(); });
   document.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = () => { D.notice = null; save(); render(); });
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => removeEntry(b.dataset.undo));
   document.querySelectorAll('[data-month]').forEach(b => b.onclick = () => { viewMonth = shiftMonth(viewMonth, +b.dataset.month); render(); });
@@ -496,40 +601,96 @@ function wire() {
   const restore = k => { $('#qAmount').value = k.a; $('#qNote').value = k.n; };
   document.querySelectorAll('[data-date]').forEach(b => b.onclick = () => { const k = keep(); qDate = b.dataset.date; render(); restore(k); });
   $('#qDate').onchange = e => { if (!e.target.value) return; const k = keep(); qDate = e.target.value; render(); restore(k); };
+  $('#qShared') && ($('#qShared').onclick = () => { const k = keep(); qShared = !qShared; render(); restore(k); });
   document.querySelectorAll('[data-pot]').forEach(b => b.onclick = () => {
     const amt = parseFloat($('#qAmount').value);
     if (!amt) { $('#qAmount').focus(); toast('Pop the amount in first 🙂'); return; }
     const before = C.bal.treat, pot = b.dataset.pot, date = qDate;
-    addEntry(amt, pot, $('#qNote').value.trim(), date);
+    const e = addEntry(amt, pot, $('#qNote').value.trim(), date, qShared);
     recalc(); render();
     const fp = D.settings.pots.find(p => p.type === 'fun');
+    const mine = e.split != null ? round2(e.amount * e.split) : null;
     if (date < C.weekStart) {
       const diff = round2(C.bal.treat - before);
       toast(`Added to ${nice(date)} — all updated ✨${diff && pot !== 'oneoff:treat' ? ` (Treat Fund ${diff > 0 ? 'up' : 'tweaked by'} ${money(Math.abs(diff))})` : ''}`);
-    } else if (pot.startsWith('oneoff:')) toast(`${pick(cheers)} Kept out of your weekly pots.`);
+    } else if (mine != null) { toast(`${pick(cheers)} Your share ${money(mine)} counts — ${money(e.amount - mine)} added to owed to you 🤝`); }
+    else if (pot.startsWith('oneoff:')) toast(`${pick(cheers)} Kept out of your weekly pots.`);
     else if (fp && pot === fp.id) {
       const left = C.pots[fp.id];
       if (left > 0) { toast(`${pick(cheers)} Still ${money(left)} of fun left.`); confetti(); } else toast('All sorted 💛 Recharge on Monday.');
-    } else if (D.settings.pots.find(p => p.id === pot)?.type === 'bills') {
-      const left = C.pots[pot];
-      toast(left < 0 ? `🧾 ${money(amt)} bill paid — savings is covering ${money(-left)} until the pot catches up.` : `🧾 ${money(amt)} bill paid from your set-aside. Sorted!`);
     } else toast(pick(cheers));
   });
-  document.querySelectorAll('[data-joint]').forEach(b => b.onclick = () => {
-    const p = D.settings.pots.find(x => x.id === b.dataset.joint);
-    const amt = round2(weeklyOf(planFor(D, C.weekStart), p.id) - jointThisWeek(p.id));
-    if (!(amt > 0)) return;
-    addEntry(amt, p.id, '', today(), 'in'); recalc(); render();
-    toast(`🏠 ${money(amt)} into the joint account — bills sorted for the week! 🎉`); confetti();
-  });
   $('#quickForm').onsubmit = e => e.preventDefault();
+
+  // ✏️ fix any pot
+  document.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => { fixPot = b.dataset.fix; render(); $('#fixAmt').focus(); $('#fixAmt').select(); });
+  if ($('#fixGo')) {
+    const go = () => {
+      const v = parseFloat($('#fixAmt').value); if (!isFinite(v)) { $('#fixAmt').focus(); return; }
+      addFix('pot:' + fixPot, v); save(); fixPot = null; recalc(); render(); toast('Updated ✨ Thanks for keeping it real.');
+    };
+    $('#fixGo').onclick = go;
+    $('#fixAmt').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    $('#fixCancel').onclick = () => { fixPot = null; render(); };
+  }
+
+  // 🚦 green light
+  $('#glOpen') && ($('#glOpen').onclick = () => { glOpen = true; glResult = null; render(); $('#glAmt').focus(); });
+  if ($('#glCheck')) {
+    $('#glCheck').onclick = () => {
+      const v = parseFloat($('#glAmt').value);
+      if (!(v > 0)) { $('#glAmt').focus(); toast('Pop the order amount in 🙂'); return; }
+      glResult = checkGreenLight(v, $('#glPot').value); render();
+    };
+    $('#glClose').onclick = () => { glOpen = false; glResult = null; render(); };
+  }
+  $('#glLog') && ($('#glLog').onclick = () => {
+    const r = glResult; addEntry(r.amount, r.pot, 'Big order', today(), true);
+    glOpen = false; glResult = null; recalc(); render(); toast(`Logged! Enjoy it 💚 ${potById(r.pot).name} refills every Monday.`); confetti();
+  });
+
+  // Welcome-back rough guesses
+  $('#cuSave') && ($('#cuSave').onclick = () => {
+    const weeks = missedWeeks();
+    document.querySelectorAll('[data-cu]').forEach(inp => {
+      const total = round2(parseFloat(inp.value) || 0); if (!total) return;
+      let left = total;
+      weeks.forEach((mon, i) => {
+        const amt = i === weeks.length - 1 ? left : round2(total / weeks.length); left = round2(left - amt);
+        const date = [addDays(mon, 3), today()].sort()[0];
+        D.entries.push(makeEntry(amt, inp.dataset.cu, 'Rough catch-up guess', date < D.settings.startDate ? D.settings.startDate : date, true));
+      });
+    });
+    D.notice = null; save(); recalc(); render(); toast('All caught up 💛 Thank you!'); confetti();
+  });
+
+  // Monthly savings check-in
+  $('#ciSave') && ($('#ciSave').onclick = () => {
+    const real = parseFloat($('#ciAmt').value); if (!isFinite(real)) { $('#ciAmt').focus(); return; }
+    const guess = C.bal.savings, diff = round2(real - guess);
+    D.checkins[today().slice(0, 7)] = { date: today(), guess, real: round2(real) };
+    addFix('savings', real); save(); recalc(); render();
+    if (diff >= 0) { toast(diff > 0 ? `You’re ${money(diff)} ahead of my guess! 🎉` : 'Spot on with my guess! 🎯'); confetti(); }
+    else toast(`A little under my guess (${money(-diff)}) — no stress, I’ve updated it 🌱`);
+  });
+  $('#ciLater') && ($('#ciLater').onclick = () => { D.snooze.checkin = today(); save(); render(); });
+  // Backup reminder
+  $('#bkNow') && ($('#bkNow').onclick = backup);
+  $('#bkLater') && ($('#bkLater').onclick = () => { D.snooze.backup = addDays(today(), 6); save(); render(); });
+
   $('#backupBtn').onclick = backup;
   $('#restoreBtn').onclick = () => $('#restoreFile').click();
+}
+// The weeks you were away (for spreading rough guesses evenly)
+function missedWeeks() {
+  const cur = mondayOf(today()), first = [D.notice?.from || addDays(cur, -7), mondayOf(D.settings.startDate)].sort()[1];
+  const out = []; for (let m = first; m < cur; m = addDays(m, 7)) out.push(m);
+  return out.length ? out : [cur];
 }
 
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3200);
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3600);
 }
 function confetti() {
   const bits = ['🎉', '✨', '💛', '🌟', '🌼'];
@@ -541,6 +702,7 @@ function confetti() {
 }
 
 /* ---------- backup ---------- */
+function backedUp() { D.lastBackup = today(); D.snooze.backup = null; save(); render(); }
 async function backup() {
   const name = `fun-money-backup-${today()}.json`;
   const text = JSON.stringify(D, null, 2);
@@ -548,7 +710,7 @@ async function backup() {
     const file = new File([text], name, { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
       await navigator.share({ files: [file], title: 'Fun Money backup' });
-      toast('Backup ready 💾 Choose “Save to Files”.');
+      backedUp(); toast('Backup ready 💾 Choose “Save to Files”.');
       return;
     }
   } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -556,12 +718,14 @@ async function backup() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast('Backup saved to your Downloads 💾');
+  backedUp(); toast('Backup saved 💾 Nice one!');
 }
 $('#restoreFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   try {
-    const data = migrate(JSON.parse(await f.text()));
+    const raw = JSON.parse(await f.text());
+    if (raw && raw.funMoneyPlan) { previewPlan(raw); e.target.value = ''; return; } // picked the plan file by mistake — that's fine too
+    const data = migrate(raw);
     if (!data) throw 0;
     if (!confirm('Load this backup? It replaces what’s on screen now.')) return;
     D = data; start();
@@ -570,12 +734,57 @@ $('#restoreFile').onchange = async e => {
   e.target.value = '';
 };
 
+/* ---------- plan file: your real figures, kept off GitHub ---------- */
+$('#planFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const raw = JSON.parse(await f.text()); if (!raw || !raw.funMoneyPlan || !Array.isArray(raw.pots)) throw 0; previewPlan(raw); }
+  catch (err) { toast('That doesn’t look like a Fun Money plan file.'); }
+  e.target.value = '';
+};
+function previewPlan(P) {
+  const rec = (P.recurring || []).map(r => `${esc(r.name)} ${money(r.amount)} a ${esc(r.every || 'week')}`).join(', ') || 'none';
+  const total = P.pots.reduce((t, p) => t + (+p.weekly || 0), 0);
+  $('#settingsForm').innerHTML = `<div class="sheet"><h2>📋 Your new plan</h2>
+    <p class="note">Have a look. Nothing changes until you tap “Use this plan”. Your entries stay put. (Saving a backup first is a nice idea.)</p>
+    <h3>Money in</h3><p>Income ${money(P.income)} a week</p>
+    <h3>Pots (your share, per week)</h3>
+    ${P.pots.map(p => `<p>${esc(p.emoji)} <strong>${esc(p.name)}</strong> ${money(p.weekly)}${p.shared ? ` · 👫 shared (your share ${P.myShare ?? 50}%)` : ''}${p.type === 'fun' ? ' · resets weekly' : ' · carries over'}</p>`).join('')}
+    <p class="note">Total ${money(total)} a week.</p>
+    <h3>Recurring</h3><p>${rec}</p>
+    ${P.balances ? `<h3>Balances</h3><p>💰 Savings ${money(P.balances.savings)} · 🎁 Treat Fund ${money(P.balances.treat)} · 🤝 Owed to me ${money(P.balances.owed)}</p>` : ''}
+    <h3>Treat Fund</h3><p>Goal ${money(P.treatGoal)} by ${P.treatDate ? nice(P.treatDate) + ' ' + P.treatDate.slice(0, 4) : '—'}</p>
+    <h3>Planned one-offs</h3><p>${(P.oneOffs || []).map(o => `${esc(o.name)} ${money(o.amount)}`).join(' · ') || 'none'}</p>
+    <p class="note">The new pots start this week. You can change any figure in Settings afterwards.</p></div>
+    <div class="sheet-actions"><button type="button" class="btn ghost" id="planCancel">Cancel</button><button type="button" class="btn" id="planUse">Use this plan</button></div>`;
+  const dlg = $('#settings'); if (!dlg.open) dlg.showModal(); dlg.scrollTop = 0;
+  $('#planCancel').onclick = () => dlg.close();
+  $('#planUse').onclick = () => { applyPlan(P); dlg.close(); recalc(); render(); toast('New plan in place ✨ Have a look!'); confetti(); };
+}
+function applyPlan(P) {
+  const s = D.settings, wk = C.weekStart, firstWeek = wk === mondayOf(s.startDate);
+  const weekly = Object.fromEntries(P.pots.map(p => [p.id, +p.weekly || 0]));
+  const opening = D.opening.pots || (D.opening.pots = {});
+  for (const p of P.pots) {
+    const isNew = !s.pots.some(x => x.id === p.id);
+    if (firstWeek) opening[p.id] = (isNew || p.type === 'fun' || opening[p.id] === weeklyOf(planFor(D, wk), p.id)) ? +p.weekly || 0 : opening[p.id];
+    else if (isNew) opening[p.id] = 0;
+  }
+  s.pots = P.pots.map(p => ({ id: p.id, name: p.name, emoji: p.emoji || '🪴', type: p.type === 'fun' ? 'fun' : 'build', shared: !!p.shared, note: p.note || '' }));
+  D.plans = D.plans.filter(p => p.from < wk).concat({ from: wk, income: +P.income, weekly, recurring: (P.recurring || []).map(r => ({ name: r.name, amount: +r.amount, every: r.every || 'week' })) });
+  for (const k of ['myShare', 'paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) if (P[k] !== undefined) s[k] = P[k];
+  recalc();
+  if (P.balances) for (const k of ['savings', 'treat', 'owed']) if (isFinite(+P.balances[k]) && Math.abs(+P.balances[k] - C.bal[k]) > 0.004) addFix(k, +P.balances[k]);
+  D.confirmed = false; D.planLoaded = true;
+  save();
+}
+
 /* ---------- settings ---------- */
 function openSettings() {
   const s = D.settings, b = C.bal, next = addDays(C.weekStart, 7), np = planFor(D, next);
   const num = (id, val) => `<input type="number" step="0.01" id="${id}" value="${esc(val)}">`;
   let h = `<div class="sheet"><h2>⚙️ Your numbers</h2>
-    <p class="note">Change anything here — no code needed. “Every week” amounts start from next Monday (${nice(next)}). To change things right now, edit “Available now”.</p>
+    <p class="note">Change anything here — no code needed. “Every week” amounts and recurring costs start from next Monday (${nice(next)}). To change things right now, edit “Available now”.</p>
+    <p><button type="button" class="btn ghost" id="loadPlan">📋 Load my plan file</button></p>
     <h3>Money in</h3>
     <div class="field"><label>Weekly income<small>What you pay yourself each week</small></label>${num('s_income', np.income)}</div>
     <h3>Pots</h3>`;
@@ -583,16 +792,23 @@ function openSettings() {
     h += `<div class="potedit">
       <div style="display:grid;grid-template-columns:60px 1fr;gap:8px"><input id="p_emoji_${i}" value="${esc(p.emoji)}" aria-label="Emoji"><input id="p_name_${i}" value="${esc(p.name)}" aria-label="Pot name"></div>
       <div class="row">
-        <div><label>Every week</label>${num('p_weekly_' + i, weeklyOf(np, p.id))}</div>
-        ${p.type === 'bills' ? '' : `<div><label>Available now</label>${num('p_left_' + i, C.pots[p.id] ?? 0)}</div>`}
+        <div><label>Every week${p.shared ? ' (your share)' : ''}</label>${num('p_weekly_' + i, weeklyOf(np, p.id))}</div>
+        <div><label>Available now</label>${num('p_left_' + i, C.pots[p.id] ?? 0)}</div>
       </div>
+      ${p.type === 'build' ? `<label class="check"><input type="checkbox" id="p_shared_${i}" ${p.shared ? 'checked' : ''}> 👫 Shared — I log the full amount, only my share counts</label>` : ''}
       <div class="row" style="grid-template-columns:1fr auto"><input id="p_note_${i}" value="${esc(p.note || '')}" placeholder="Note (optional)" aria-label="Note">
         ${p.type === 'build' ? `<button type="button" class="linkish" data-rmpot="${i}">remove</button>` : ''}</div>
     </div>`;
   });
-  const drip = round2(totalWeekly(D, np) - np.income);
+  const drip = expectedDrip(D, np);
   h += `<button type="button" class="linkish" id="addPot">+ add a pot</button>
-    <p class="note">Pots add up to ${money(totalWeekly(D, np))} a week, so ${money(Math.abs(drip))} ${drip >= 0 ? 'comes from savings' : 'goes into savings'} each Monday.</p>
+    <div class="field"><label>My share of shared pots<small>As a %, e.g. 50</small></label>${num('s_share', s.myShare)}</div>
+    <h3>Recurring costs</h3>
+    <p class="note">Things that count themselves, like insurance. They come out of savings automatically.</p>
+    <div id="recurring">${(np.recurring || []).map(recRow).join('')}</div>
+    <button type="button" class="linkish" id="addRec">+ add one</button>
+    <p class="note">Pots ${money(totalWeekly(D, np))} + recurring ${money(recurringWeekly(np))} + the shared half you front ${money(partnerWeekly(D, np))}, against income ${money(np.income)}:
+      ${drip > 0 ? `a gentle savings drip of about ${money(drip)} a week.` : `savings grows about ${money(-drip)} a week.`}</p>
     <h3>Overspending the fun pot</h3>
     <label class="check"><input type="checkbox" id="s_payback" ${s.paybackOn ? 'checked' : ''}> Makes next week’s fun pot smaller</label>
     <div class="field"><label>…but never below<small>So there’s always something</small></label>${num('s_floor', s.funFloor)}</div>
@@ -613,12 +829,14 @@ function openSettings() {
   const dlg = $('#settings'); if (!dlg.open) dlg.showModal(); dlg.scrollTop = 0;
 
   $('#cancelS').onclick = () => dlg.close();
-  $('#addOneOff').onclick = () => { $('#oneoffs').insertAdjacentHTML('beforeend', oneOffRow({ name: '', amount: '' })); wireOneOffs(); };
-  wireOneOffs();
+  $('#loadPlan').onclick = () => $('#planFile').click();
+  $('#addOneOff').onclick = () => { $('#oneoffs').insertAdjacentHTML('beforeend', oneOffRow({ name: '', amount: '' })); wireRows(); };
+  $('#addRec').onclick = () => { $('#recurring').insertAdjacentHTML('beforeend', recRow({ name: '', amount: '', every: 'week' })); wireRows(); };
+  wireRows();
   $('#addPot').onclick = () => {
     collectSettings();
     const id = 'pot_' + uid();
-    D.settings.pots.splice(D.settings.pots.findIndex(p => p.type === 'fun'), 0, { id, name: 'New pot', emoji: '🪴', type: 'build', note: '' });
+    D.settings.pots.splice(D.settings.pots.findIndex(p => p.type === 'fun'), 0, { id, name: 'New pot', emoji: '🪴', type: 'build', shared: false, note: '' });
     save(); recalc(); openSettings();
   };
   document.querySelectorAll('[data-rmpot]').forEach(btn => btn.onclick = () => {
@@ -628,7 +846,7 @@ function openSettings() {
     D.settings.pots = D.settings.pots.filter(x => x.id !== p.id); save(); recalc(); openSettings();
   });
   $('#resetAll').onclick = () => {
-    if (!confirm('Wipe everything and start again with the starter numbers? (Maybe save a backup first!)')) return;
+    if (!confirm('Wipe everything and start again with the example numbers? (Maybe save a backup first!)')) return;
     D = defaultData(today()); dlg.close(); start(); toast('Fresh start 🌱');
   };
   $('#saveS').onclick = () => {
@@ -642,32 +860,41 @@ function openSettings() {
       D.opening = { savings: C.bal.savings, treat: C.bal.treat, owed: C.bal.owed, pots: { ...C.pots } };
       D.entries = []; D.fixes = []; D.lastSeenMonday = mondayOf(today() < newStart ? newStart : today());
     } else collectSettings();
-    D.confirmed = true; save(); dlg.close(); recalc(); render(); toast('Saved! 🙌');
+    D.confirmed = true; D.planLoaded = false; save(); dlg.close(); recalc(); render(); toast('Saved! 🙌');
   };
 }
 function oneOffRow(o) {
-  return `<div class="oneoff"><input data-oo-name value="${esc(o.name)}" placeholder="What for"><input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-oo-rm aria-label="Remove">✕</button></div>`;
+  return `<div class="oneoff"><input data-oo-name value="${esc(o.name)}" placeholder="What for"><input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-rm-row aria-label="Remove">✕</button></div>`;
 }
-function wireOneOffs() { document.querySelectorAll('[data-oo-rm]').forEach(b => b.onclick = () => b.parentElement.remove()); }
+function recRow(r) {
+  const opt = v => `<option value="${v}"${(r.every || 'week') === v ? ' selected' : ''}>a ${v}</option>`;
+  return `<div class="recrow"><input data-rc-name value="${esc(r.name)}" placeholder="What (e.g. insurance)"><input data-rc-amt type="number" step="0.01" value="${esc(r.amount)}" placeholder="$">
+    <select data-rc-every aria-label="How often">${['week', 'fortnight', 'month', 'year'].map(opt).join('')}</select><button type="button" class="linkish" data-rm-row aria-label="Remove">✕</button></div>`;
+}
+function wireRows() { document.querySelectorAll('[data-rm-row]').forEach(b => b.onclick = () => b.parentElement.remove()); }
 
 // Read the settings form. Weekly amounts → a plan from next Monday. Balances → a dated correction.
 function collectSettings() {
-  const s = D.settings, t = today(), fixDate = t < s.startDate ? s.startDate : t;
+  const s = D.settings;
   const n = (id, fb) => { const v = parseFloat($('#' + id)?.value); return isFinite(v) ? round2(v) : fb; };
   const next = addDays(C.weekStart, 7), old = planFor(D, next);
-  const plan = { from: next, income: n('s_income', old.income), weekly: { ...old.weekly } };
-  const fix = (target, val, was) => { if (Math.abs(val - was) > 0.004) D.fixes.push({ seq: D.seq++, date: fixDate, target, value: val }); };
+  const plan = { from: next, income: n('s_income', old.income), weekly: { ...old.weekly }, recurring: old.recurring || [] };
+  const fix = (target, val, was) => { if (Math.abs(val - was) > 0.004) addFix(target, val); };
   s.pots.forEach((p, i) => {
     if (!$('#p_name_' + i)) return;
     p.name = $('#p_name_' + i).value.trim() || p.name;
     p.emoji = $('#p_emoji_' + i).value.trim() || p.emoji;
     p.note = $('#p_note_' + i).value.trim();
+    if ($('#p_shared_' + i)) p.shared = $('#p_shared_' + i).checked;
     plan.weekly[p.id] = n('p_weekly_' + i, weeklyOf(old, p.id));
-    if (p.type !== 'bills') fix('pot:' + p.id, n('p_left_' + i, C.pots[p.id] ?? 0), C.pots[p.id] ?? 0);
+    fix('pot:' + p.id, n('p_left_' + i, C.pots[p.id] ?? 0), C.pots[p.id] ?? 0);
   });
-  if (JSON.stringify([plan.income, plan.weekly]) !== JSON.stringify([old.income, old.weekly])) {
+  if ($('#recurring')) plan.recurring = [...document.querySelectorAll('.recrow')].map(r => ({ name: r.querySelector('[data-rc-name]').value.trim(),
+    amount: parseFloat(r.querySelector('[data-rc-amt]').value) || 0, every: r.querySelector('[data-rc-every]').value })).filter(r => r.name || r.amount);
+  if (JSON.stringify([plan.income, plan.weekly, plan.recurring]) !== JSON.stringify([old.income, old.weekly, old.recurring || []])) {
     D.plans = D.plans.filter(p => p.from < next).concat(plan);
   }
+  s.myShare = Math.min(100, Math.max(1, n('s_share', s.myShare)));
   s.paybackOn = $('#s_payback').checked;
   s.funFloor = n('s_floor', s.funFloor);
   fix('savings', n('s_savings', C.bal.savings), C.bal.savings);
@@ -680,23 +907,12 @@ function collectSettings() {
 }
 
 /* ---------- start! ---------- */
-// Bills are now just a weekly transfer to the joint account — tidy up anything from before
-function tidy() {
-  const billIds = D.settings.pots.filter(p => p.type === 'bills').map(p => p.id);
-  for (const p of D.settings.pots) if (p.type === 'bills' && (p.name === 'Bills set-aside' || /builds up each week/i.test(p.note || ''))) {
-    p.name = 'Joint account top-up'; p.emoji = '🏠'; p.note = 'Pays the bills from the joint account. Tap the button once you’ve moved the money.';
-  }
-  D.entries = D.entries.filter(e => !billIds.includes(e.pot) || e.dir === 'in'); // keep top-up ticks, drop old 'bill paid' entries
-  for (const p of D.settings.pots) if (p.type === 'bills' && /nothing to log here/.test(p.note || '')) p.note = 'Pays the bills from the joint account. Tap the button once you’ve moved the money.';
-  D.fixes = D.fixes.filter(f => !billIds.some(id => f.target === 'pot:' + id));
-}
-
 function start() {
-  tidy();
+  D = migrate(D) || defaultData(today());
   const cur = mondayOf(today());
   if (D.lastSeenMonday && cur > D.lastSeenMonday && cur > mondayOf(D.settings.startDate)) {
     const weeks = Math.round(daysBetween(D.lastSeenMonday, cur) / 7);
-    D.notice = weeks >= 2 ? { kind: 'catchup', weeks } : { kind: 'newweek' };
+    D.notice = weeks >= 2 ? { kind: 'catchup', weeks, from: D.lastSeenMonday } : { kind: 'newweek' };
   }
   if (!D.lastSeenMonday || cur > D.lastSeenMonday) D.lastSeenMonday = cur;
   save(); recalc(); render();
