@@ -1,0 +1,5 @@
+# Never put my money data in GitHub
+*.json
+*.csv
+my-data/
+backups/

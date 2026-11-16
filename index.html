@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fun Money</title>
+<meta name="description" content="One number: what you can spend freely this week.">
+<meta name="theme-color" content="#ff8a5b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fun Money">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --bg: #fff7ec; --card: #ffffff; --ink: #2d2a32; --soft: #6f6874; --line: #f0e4d4;
+    --bar: #f4eadc; --fun: #ff8a5b; --fun2: #ffb347; --teal: #2bb3a3; --gold: #f2b134;
+    --violet: #8b7cf6; --shadow: 0 6px 24px rgba(120, 80, 40, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1f1b24; --card: #2a2530; --ink: #f6efe6; --soft: #bbb1c0; --line: #3b3442; --bar: #3b3442; --shadow: none; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 620px; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top)) 16px calc(60px + env(safe-area-inset-bottom)); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 14px; }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; color: var(--soft); }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 12px; }
+  .icon-btn { background: var(--card); color: var(--ink); padding: 8px 14px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+  .card { background: var(--card); border-radius: 22px; padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+  .hero { text-align: center; padding: 26px 20px 22px; }
+  .hero .label { font-size: 1rem; color: var(--soft); font-weight: 600; letter-spacing: .02em; }
+  .hero .big { font-size: clamp(4rem, 18vw, 6.5rem); font-weight: 800; line-height: 1.05; margin: 6px 0 4px;
+    background: linear-gradient(135deg, var(--fun), var(--fun2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero .msg { font-size: 1.1rem; margin-top: 10px; }
+  .bar { height: 14px; background: var(--bar); border-radius: 99px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--fun), var(--fun2)); transition: width .5s; }
+  .bar.teal > span { background: linear-gradient(90deg, var(--teal), #6fd6c8); }
+  .bar.gold > span { background: linear-gradient(90deg, var(--gold), #ffd36e); }
+  .bar.violet > span { background: linear-gradient(90deg, var(--violet), #b6acff); }
+  .hero .bar { height: 20px; margin: 14px auto 0; max-width: 420px; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  .pot { margin: 14px 0; }
+  .pot-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+  .pot-name { font-weight: 600; }
+  .pot-amt { font-weight: 700; white-space: nowrap; }
+  .note { font-size: .88rem; color: var(--soft); margin-top: 4px; }
+  .summary p { margin: 6px 0; font-size: 1.05rem; }
+  .quick { display: grid; gap: 10px; }
+  .quick-row { display: flex; gap: 8px; }
+  input, select { font: inherit; color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 100%; min-width: 0; }
+  input:focus, select:focus { outline: none; border-color: var(--fun); }
+  .amount-in { font-size: 1.6rem; font-weight: 700; max-width: 170px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: var(--bar); color: var(--ink); padding: 10px 14px; font-weight: 600; }
+  .chip:hover { background: var(--fun); color: #fff; }
+  .chip.small { font-size: .9rem; padding: 8px 12px; }
+  .banner { border-radius: 18px; padding: 16px 18px; margin-bottom: 14px; background: linear-gradient(135deg, #fff0d6, #ffe3d6); color: #3b2a20; }
+  @media (prefers-color-scheme: dark) { .banner { background: linear-gradient(135deg, #4a3a2a, #4a2f2a); color: #fbeee0; } }
+  .banner p { margin: 4px 0; }
+  .banner .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .btn { background: var(--fun); color: #fff; padding: 10px 16px; font-weight: 700; }
+  .btn.ghost { background: transparent; color: inherit; border: 2px solid currentColor; opacity: .8; }
+  .tx { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: .95rem; }
+  .tx:first-of-type { border-top: 0; }
+  .tx button { background: none; color: var(--soft); padding: 4px 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat { background: var(--bg); border-radius: 14px; padding: 12px; }
+  .stat .k { font-size: .85rem; color: var(--soft); }
+  .stat .v { font-size: 1.3rem; font-weight: 700; }
+  footer { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+  footer button { background: var(--card); color: var(--ink); border: 1px solid var(--line); padding: 10px 14px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(120px); background: var(--ink); color: var(--bg);
+    padding: 14px 20px; border-radius: 16px; font-weight: 600; transition: transform .3s, opacity .3s; opacity: 0; z-index: 50; max-width: calc(100% - 32px); text-align: center; }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .confetti { position: fixed; top: -40px; font-size: 26px; pointer-events: none; z-index: 40; animation: fall 1.6s ease-in forwards; }
+  @keyframes fall { to { transform: translateY(105vh) rotate(360deg); opacity: .2; } }
+  /* settings */
+  dialog { border: 0; border-radius: 22px; padding: 0; width: min(620px, calc(100% - 24px)); max-height: calc(100% - 24px);
+    background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: rgba(30, 20, 30, .45); }
+  .sheet { padding: 20px; }
+  .sheet h2 { font-size: 1.3rem; }
+  .sheet h3 { font-size: 1rem; margin: 22px 0 8px; color: var(--soft); text-transform: uppercase; letter-spacing: .05em; }
+  .field { display: grid; grid-template-columns: 1fr 140px; gap: 10px; align-items: center; margin: 8px 0; }
+  .field label { font-weight: 600; }
+  .field small { display: block; font-weight: 400; color: var(--soft); }
+  .potedit { background: var(--bg); border-radius: 14px; padding: 12px; margin: 10px 0; }
+  .potedit .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .potedit .row label { font-size: .85rem; color: var(--soft); display: block; }
+  .potedit input { background: var(--card); }
+  .oneoff { display: grid; grid-template-columns: 1fr 110px 40px; gap: 8px; margin: 6px 0; }
+  .sheet-actions { position: sticky; bottom: 0; background: var(--card); padding: 14px 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid var(--line); }
+  .linkish { background: none; color: var(--soft); text-decoration: underline; padding: 6px 0; }
+  .check { display: flex; gap: 10px; align-items: center; font-weight: 600; margin: 8px 0; }
+  .check input { width: 22px; height: 22px; }
+  @media (max-width: 460px) { .field { grid-template-columns: 1fr 110px; } .grid2 { grid-template-columns: 1fr; } }
+  .chip.on { background: var(--fun); color: #fff; }
+  .datepick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .datepick input { border: 0; background: transparent; padding: 0; width: auto; font-size: .9rem; color: inherit; }
+  .month-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .month-head h2 { margin: 0; }
+  .navbtn { background: var(--bar); color: var(--ink); width: 38px; height: 38px; font-size: 1.3rem; font-weight: 700; }
+  .navbtn:disabled { opacity: .35; cursor: default; }
+  .month-line { margin: 8px 0; }
+  .btn.joint { margin-top: 10px; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+<input type="file" id="restoreFile" accept=".json,application/json" hidden>
+<dialog id="settings"><form method="dialog" id="settingsForm"></form></dialog>
+
+<script>
+/* ============================================================
+   Fun Money — round 2
+   Everything is saved in THIS browser on THIS computer (localStorage).
+   Nothing is sent anywhere. Use "Save a backup" to keep a copy.
+
+   How the sums work: the app keeps your starting balances, your weekly
+   plan and your list of entries, then recalculates every week from the
+   start each time. So logging something late just slots it into the
+   right week.
+   ============================================================ */
+const KEY = 'funMoney.v1'; // same storage spot as before, so old data is found
+
+/* ---------- little helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const round2 = n => Math.round(n * 100) / 100;
+function money(n) {
+  const v = round2(n), a = Math.abs(v);
+  const s = a.toLocaleString('en-NZ', { minimumFractionDigits: a % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  return (v < 0 ? '−$' : '$') + s;
+}
+const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); };
+const mondayOf = s => { const d = parse(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
+const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000);
+const nice = s => parse(s).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
+const monthName = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
+const shiftMonth = (k, n) => { const d = new Date(+k.slice(0, 4), +k.slice(5, 7) - 1 + n, 1); return iso(d).slice(0, 7); };
+// "?today=2026-12-01" in the address bar lets us pretend it's another day (handy for testing).
+function today() {
+  const p = new URLSearchParams(location.search).get('today');
+  return p && /^\d{4}-\d{2}-\d{2}$/.test(p) ? p : iso(new Date());
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+/* ---------- example starting numbers (everyone changes these in Settings) ---------- */
+function defaultData(start) {
+  const m0 = mondayOf(start);
+  return {
+    version: 2, confirmed: false, seq: 1,
+    settings: {
+      startDate: start,
+      pots: [
+        { id: 'bills', name: 'Joint account top-up', emoji: '🏠', type: 'bills', note: 'Pays the bills from the joint account. Tap the button once you’ve moved the money.' },
+        { id: 'groceries', name: 'Groceries', emoji: '🥦', type: 'build', note: 'What you pay out of your own pocket.' },
+        { id: 'pets', name: 'Pets', emoji: '🐾', type: 'build', note: '' },
+        { id: 'care', name: 'Personal care', emoji: '💇', type: 'build', note: '' },
+        { id: 'fun', name: 'Fun pot', emoji: '🎉', type: 'fun', note: 'Clothes, gifts and treats.' },
+      ],
+      paybackOn: true, funFloor: 10,
+      treatGoal: 1000, treatDate: addDays(start, 120),
+      oneOffs: [{ name: 'Christmas', amount: 300 }],
+    },
+    // Weekly amounts, each with the Monday they start from (so changes never rewrite the past)
+    plans: [{ from: m0, income: 450, weekly: { bills: 150, groceries: 120, pets: 30, care: 50, fun: 40 } }],
+    // Balances on the plan start date
+    opening: { savings: 2000, treat: 200, owed: 0, pots: { bills: 0, groceries: 120, pets: 30, care: 50, fun: 40 } },
+    entries: [],   // { id, seq, date, amount, pot, note }
+    fixes: [],     // { seq, date, target, value }  "on this date the real figure was…"
+    lastSeenMonday: m0, notice: null,
+  };
+}
+
+/* ---------- moving Phase 1 data over ---------- */
+function migrate(o) {
+  if (!o || typeof o !== 'object') return null;
+  if (o.version === 2) return o;
+  if (o.version !== 1 || !o.settings || !o.week) return null;
+  const s1 = o.settings, start = s1.startDate;
+  const d = defaultData(start);
+  d.confirmed = !!o.confirmed;
+  const typeMap = { carry: 'bills', weekly: 'build', fun: 'fun' };
+  d.settings.pots = s1.pots.map(p => {
+    const q = { id: p.id, name: p.name, emoji: p.emoji, type: typeMap[p.type] || 'build', note: p.note || '' };
+    if (p.id === 'petscar' || /pets\s*&\s*car/i.test(p.name)) { q.name = 'Pets'; q.note = ''; }
+    return q;
+  });
+  for (const k of ['paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) if (s1[k] !== undefined) d.settings[k] = s1[k];
+  d.plans = [{ from: mondayOf(start), income: +s1.income, weekly: Object.fromEntries(s1.pots.map(p => [p.id, +p.weekly])) }];
+  const tx = o.tx || [];
+  if (!(o.history || []).length) {
+    // Still in the first week: work the starting balances back out exactly
+    const sum = pot => tx.filter(t => t.pot === pot).reduce((a, t) => a + t.amount, 0);
+    d.opening = {
+      savings: round2(o.balances.savings + sum('oneoff:savings')), treat: round2(o.balances.treat + sum('oneoff:treat')), owed: o.balances.owed,
+      pots: Object.fromEntries(s1.pots.map(p => [p.id, round2((o.week.pots[p.id] ?? 0) + sum(p.id))])),
+    };
+    d.entries = tx.map(t => ({ id: t.id, seq: d.seq++, date: t.date, amount: t.amount, pot: t.pot, note: t.note || '' }));
+  } else {
+    // Older data: keep settings and today's balances, start the list fresh
+    const t = today();
+    d.settings.startDate = t;
+    d.plans[0].from = mondayOf(t);
+    d.opening = { savings: o.balances.savings, treat: o.balances.treat, owed: o.balances.owed, pots: { ...o.week.pots } };
+    d.lastSeenMonday = mondayOf(t);
+    d.notice = { kind: 'moved' };
+  }
+  return d;
+}
+
+/* ---------- load / save ---------- */
+let D, C; // D = what's stored, C = what's calculated from it
+function load() { try { const raw = localStorage.getItem(KEY); if (raw) return migrate(JSON.parse(raw)); } catch (e) {} return null; }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(D)); } catch (e) { toast('Hmm, I could not save in this browser. Try “Save a backup”.'); } }
+
+/* ---------- the engine: replay every week from the start ---------- */
+function planFor(d, monday) {
+  const ps = d.plans.slice().sort((a, b) => a.from < b.from ? -1 : 1);
+  let p = ps[0];
+  for (const x of ps) if (x.from <= monday) p = x;
+  return p;
+}
+const weeklyOf = (plan, id) => +(plan.weekly?.[id] || 0);
+const totalWeekly = (d, plan) => d.settings.pots.reduce((t, p) => t + weeklyOf(plan, p.id), 0);
+
+function compute(d, upto) {
+  const s = d.settings, start = s.startDate, cur = mondayOf(upto);
+  const known = new Set(s.pots.filter(p => p.type !== 'bills').map(p => p.id)); // the joint-account transfer has no balance
+  const billIds = new Set(s.pots.filter(p => p.type === 'bills').map(p => p.id));
+  const fun = s.pots.find(p => p.type === 'fun');
+  const bal = { savings: +d.opening.savings || 0, treat: +d.opening.treat || 0, owed: +d.opening.owed || 0 };
+  const pots = {}; for (const p of s.pots) pots[p.id] = +(d.opening.pots?.[p.id] ?? 0);
+  const months = {};
+  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, added: {}, toTreat: 0, oneSav: 0, oneTreat: 0, topups: 0, count: 0 });
+  const add = (o, k, v) => { o[k] = round2((o[k] || 0) + v); };
+  for (const p of s.pots) add(M(start.slice(0, 7)).planned, p.id, p.type === 'bills' ? weeklyOf(planFor(d, mondayOf(start)), p.id) : pots[p.id]); // the starting amounts count as this month's plan
+  let funBudget = fun ? pots[fun.id] : 0;
+
+  const events = [
+    ...d.entries.filter(e => e.date >= start && e.date <= upto).map(e => ({ ...e, kind: 'e' })),
+    ...d.fixes.filter(f => f.date >= start && f.date <= upto).map(f => ({ ...f, kind: 'f' })),
+  ].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.seq || 0) - (b.seq || 0));
+
+  function apply(ev) {
+    if (ev.kind === 'f') {
+      if (ev.target.startsWith('pot:')) {
+        const id = ev.target.slice(4);
+        if (known.has(id)) { pots[id] = +ev.value; if (fun && id === fun.id) funBudget = Math.max(funBudget, +ev.value); }
+      } else bal[ev.target] = +ev.value;
+      return;
+    }
+    const m = M(ev.date.slice(0, 7)); m.count++;
+    if (ev.dir === 'in' && billIds.has(ev.pot)) { add(m.added, ev.pot, ev.amount); return; } // joint account top-up ticked
+    if (ev.dir === 'in') { if (known.has(ev.pot)) { pots[ev.pot] = round2(pots[ev.pot] + ev.amount); add(m.added, ev.pot, ev.amount); } return; } // money put into a pot
+    if (ev.pot === 'oneoff:savings') { bal.savings -= ev.amount; m.oneSav = round2(m.oneSav + ev.amount); }
+    else if (ev.pot === 'oneoff:treat') { bal.treat -= ev.amount; m.oneTreat = round2(m.oneTreat + ev.amount); }
+    else if (known.has(ev.pot)) { pots[ev.pot] = round2(pots[ev.pot] - ev.amount); add(m.spent, ev.pot, ev.amount); }
+  }
+
+  const history = [];
+  let monday = mondayOf(start), i = 0;
+  for (let guard = 0; guard < 2000; guard++) {
+    const end = addDays(monday, 6);
+    while (i < events.length && events[i].date <= end) apply(events[i++]);
+    if (monday >= cur) break;
+    // ---- Monday arrives ----
+    const next = addDays(monday, 7), plan = planFor(d, next), m = M(next.slice(0, 7));
+    let over = 0, toTreat = 0, payback = 0;
+    const wkBudget = funBudget;
+    const funLeft = fun ? pots[fun.id] : 0;
+    if (fun) {
+      if (funLeft > 0) { toTreat = funLeft; bal.treat += funLeft; m.toTreat = round2(m.toTreat + funLeft); } // leftover fun → Treat Fund
+      else if (funLeft < 0) { over = -funLeft; bal.savings += funLeft; }                                   // savings quietly covers it
+    }
+    for (const p of s.pots) {
+      const w = weeklyOf(plan, p.id);
+      if (p.type === 'fun') {
+        let nb = w;
+        if (s.paybackOn && over > 0) { nb = Math.max(Math.min(+s.funFloor || 0, w), w - over); payback = round2(w - nb); }
+        pots[p.id] = nb; funBudget = nb; add(m.planned, p.id, nb);
+      } else if (p.type === 'bills') { pots[p.id] = 0; add(m.planned, p.id, w); } // fixed transfer to the joint account
+      else { pots[p.id] = round2(pots[p.id] + w); add(m.planned, p.id, w); } // everything else builds up
+    }
+    bal.savings += plan.income - totalWeekly(d, plan) + payback; // Monday top-up from savings
+    m.topups++;
+    history.push({ start: monday, funBudget: wkBudget, funLeft, toTreat, over, payback });
+    monday = next;
+  }
+  for (const k in bal) bal[k] = round2(bal[k]);
+  for (const k in pots) pots[k] = round2(pots[k]);
+  return { bal, pots, funBudget, weekStart: monday, months, history };
+}
+const recalc = () => { C = compute(D, today()); };
+
+/* ---------- entries ---------- */
+function addEntry(amount, pot, note, date, dir) {
+  amount = round2(+amount); if (!amount) return;
+  const e = { id: uid(), seq: D.seq++, date, amount, pot, note: note || '' };
+  if (dir === 'in') e.dir = 'in';
+  D.entries.push(e);
+  save();
+}
+function removeEntry(id) { D.entries = D.entries.filter(e => e.id !== id); save(); recalc(); render(); toast('Removed. All tidy ✨'); }
+
+/* ---------- friendly words ---------- */
+function funMessage(left, budget) {
+  if (left <= 0) return 'All spent — recharge on Monday 🌙';
+  const r = budget > 0 ? left / budget : 1;
+  if (r >= 0.9) return 'A full pot! Spend it on something lovely 💛';
+  if (r >= 0.5) return 'Plenty left. You’re doing great 🌼';
+  if (r >= 0.2) return 'Still some sparkle in there ✨';
+  return 'A little treat’s worth left 🍬';
+}
+const cheers = ['Logged! 🎉', 'Nice one! 🌟', 'Done & dusted ✨', 'Got it! 💛', 'Sorted! 🙌'];
+const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : (a > 0 ? 100 : 0);
+const potLabel = id => id === 'oneoff:savings' ? '✈️ One-off (savings)' : id === 'oneoff:treat' ? '🎁 One-off (Treat Fund)'
+  : (p => p ? p.emoji + ' ' + p.name : 'Removed pot')(D.settings.pots.find(p => p.id === id));
+
+/* ---------- drawing the screen ---------- */
+let qDate = null, viewMonth = null;
+
+function render() {
+  const s = D.settings, b = C.bal, tdy = today();
+  const fp = s.pots.find(p => p.type === 'fun');
+  const funLeft = fp ? C.pots[fp.id] : 0, funBudget = C.funBudget;
+  const daysToMonday = daysBetween(tdy, addDays(C.weekStart, 7));
+  const thisPlan = planFor(D, C.weekStart);
+  if (!qDate || qDate > tdy || qDate < s.startDate) qDate = tdy < s.startDate ? s.startDate : tdy;
+  const yest = addDays(tdy, -1);
+
+  let h = `<header><h1>Week of ${nice(C.weekStart)} · ${daysToMonday === 1 ? 'recharges tomorrow' : 'recharges in ' + daysToMonday + ' days'}</h1>
+    <button class="icon-btn" id="openSettings">⚙️ Settings</button></header>`;
+
+  // banners
+  const n = D.notice;
+  if (n?.kind === 'catchup') h += banner(`<p><strong>Welcome back! 💛</strong></p><p>I’ve caught up ${n.weeks} weeks for you and your pots are fresh. Log anything from the past few weeks whenever it suits — I’ll slot it into the right week.</p>`, 'Lovely, thanks');
+  else if (n?.kind === 'newweek') { const last = C.history[C.history.length - 1]; h += banner(`<p><strong>New week, full pots! 🌈</strong></p>${last ? lastWeekLines(last) : ''}`, 'Let’s go'); }
+  else if (n?.kind === 'moved') h += banner(`<p><strong>New version, same you 🌱</strong></p><p>I kept your settings and balances. Your entries list starts fresh from today.</p>`, 'Great');
+  if (!D.confirmed) h += `<div class="banner"><p><strong>Quick check 👀</strong> These are example numbers. Pop your own in (or load a backup) and you’re away.</p>
+      <div class="actions"><button class="btn" id="checkNums">Check my numbers</button><button class="btn ghost" id="confirmNums">They’re right</button></div></div>`;
+  if (tdy < s.startDate) h += `<div class="banner"><p>Your plan starts on <strong>${nice(s.startDate)}</strong>. Until then, have a play!</p></div>`;
+
+  // hero
+  h += `<section class="card hero"><div class="label">FUN MONEY THIS WEEK</div>
+    <div class="big" id="funBig">${money(Math.max(0, funLeft))}</div>
+    <div class="bar"><span style="width:${pct(funLeft, funBudget)}%"></span></div>
+    <div class="msg">${funMessage(funLeft, funBudget)}</div>
+    ${funLeft < 0 ? `<div class="note">${money(-funLeft)} extra came from savings — all covered.</div>` : ''}</section>`;
+
+  // quick add
+  const dateChip = (val, label) => `<button type="button" class="chip small${qDate === val ? ' on' : ''}" data-date="${val}">${label}</button>`;
+  h += `<section class="card"><h2>Quick add ⚡</h2>
+    <form class="quick" id="quickForm" autocomplete="off">
+      <div class="quick-row">
+        <input class="amount-in" id="qAmount" type="number" inputmode="decimal" step="0.01" placeholder="$0" aria-label="Amount">
+        <input id="qNote" type="text" placeholder="What was it? (optional)" aria-label="Note">
+      </div>
+      <div class="chips datechips">
+        ${tdy >= s.startDate ? dateChip(tdy, 'Today') : ''}
+        ${yest >= s.startDate ? dateChip(yest, 'Yesterday') : ''}
+        <label class="chip small datepick${qDate !== tdy && qDate !== yest ? ' on' : ''}">📅 <input type="date" id="qDate" value="${qDate}" min="${s.startDate}" max="${tdy}" aria-label="Pick a date"></label>
+      </div>
+      <div class="chips">${s.pots.filter(p => p.type !== 'bills').map(p => `<button type="button" class="chip" data-pot="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`).join('')}</div>
+      <div class="chips">
+        <button type="button" class="chip small" data-pot="oneoff:savings">✈️ One-off from savings</button>
+        <button type="button" class="chip small" data-pot="oneoff:treat">🎁 One-off from Treat Fund</button>
+      </div>
+      <div class="note">Type the amount, then tap where it came from. Logging for <strong>${qDate === tdy ? 'today' : nice(qDate)}</strong>. A refund? Type a minus, like −20.</div>
+    </form></section>`;
+
+  // three lines
+  const build = s.pots.filter(p => p.type === 'build');
+  const evLeft = build.reduce((t, p) => t + Math.max(0, C.pots[p.id] ?? 0), 0);
+  h += `<section class="card summary"><h2>This week in three lines</h2>
+    <p>🎉 ${money(Math.max(0, funLeft))} fun money left, ${daysToMonday} ${daysToMonday === 1 ? 'day' : 'days'} till it recharges.</p>
+    <p>🛒 Everyday pots: ${money(evLeft)} available.${s.pots.filter(p => p.type === 'bills').every(p => jointThisWeek(p.id) >= weeklyOf(thisPlan, p.id)) ? ' 🏠 Joint account topped up ✓' : ''}</p>
+    <p>🎁 Treat Fund ${money(b.treat)} of ${money(s.treatGoal)} · 💰 Savings ${money(b.savings)}.</p></section>`;
+
+  // pots
+  h += `<section class="card"><h2>Your pots</h2>`;
+  for (const p of s.pots) {
+    if (p.type === 'fun') continue;
+    const left = C.pots[p.id] ?? 0, w = weeklyOf(thisPlan, p.id);
+    if (p.type === 'bills') {
+      const done = jointThisWeek(p.id);
+      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(done)} of ${money(w)}</span></div>
+        <div class="bar teal"><span style="width:${pct(done, w)}%"></span></div>
+        ${done >= w ? `<div class="note"><strong>Done for this week 🎉</strong> Bills are covered.</div>`
+          : `<div class="note">${esc(p.note)}</div><button type="button" class="btn joint" data-joint="${esc(p.id)}">✓ I’ve put in ${money(round2(w - done))}</button>`}</div>`;
+    } else {
+      const weeks = w > 0 ? Math.floor(left / w) : 0;
+      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(Math.max(0, left))} available</span></div>
+        <div class="bar teal"><span style="width:${pct(left, w)}%"></span></div>
+        <div class="note">${left < 0 ? `Borrowing ${money(-left)} from next week — it catches up on Monday 🌱`
+          : [weeks >= 2 ? `About ${weeks} weeks’ worth saved up.` : `Tops up ${money(w)} every Monday.`, esc(p.note)].filter(Boolean).join(' ')}</div></div>`;
+    }
+  }
+  h += `</section>`;
+
+  h += monthCard();
+
+  // money corner
+  const planned = s.oneOffs.reduce((t, o) => t + (+o.amount || 0), 0);
+  const daysToVisit = daysBetween(tdy, s.treatDate);
+  const drip = round2(totalWeekly(D, thisPlan) - thisPlan.income);
+  h += `<section class="card"><h2>Money corner</h2>
+    <div class="pot"><div class="pot-top"><span class="pot-name">🎁 Treat Fund</span><span class="pot-amt">${money(b.treat)} of ${money(s.treatGoal)}</span></div>
+      <div class="bar gold"><span style="width:${pct(b.treat, s.treatGoal)}%"></span></div>
+      <div class="note">${daysToVisit > 0 ? `${daysToVisit} days to go (${nice(s.treatDate)}) ✈️` : 'Treat time! 🥳'} Leftover fun money lands here.</div></div>
+    <div class="grid2">
+      <div class="stat"><div class="k">💰 Savings</div><div class="v">${money(b.savings)}</div><div class="note">${planned ? `${money(b.savings - planned)} after planned one-offs` : ''}</div></div>
+      <div class="stat"><div class="k">🤝 Owed to me</div><div class="v">${money(b.owed)}</div><div class="note">Not counted as spendable.</div></div>
+    </div>
+    ${s.oneOffs.length ? `<div class="note" style="margin-top:10px">Planned from savings: ${s.oneOffs.map(o => `${esc(o.name)} ${money(o.amount)}`).join(' · ')}</div>` : ''}
+    ${drip > 0 ? `<div class="note">Each Monday ${money(drip)} tops up your pots from savings.</div>` : ''}</section>`;
+
+  // recent entries (last 14 days)
+  const since = addDays(tdy, -13);
+  const recent = D.entries.filter(e => e.date >= since).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.seq - a.seq);
+  if (recent.length) {
+    h += `<section class="card"><h2>Recent entries</h2>
+      ${recent.map(t => `<div class="tx"><span>${t.dir === 'in' ? '➕ Put into ' : ''}${esc(potLabel(t.pot))}${t.note ? ' · ' + esc(t.note) : ''}<br><span class="note">${nice(t.date)}</span></span>
+        <span><strong>${t.dir === 'in' ? '+' + money(t.amount) : t.amount < 0 ? 'refund ' + money(-t.amount) : money(t.amount)}</strong> <button data-undo="${t.id}" aria-label="Remove">✕</button></span></div>`).join('')}</section>`;
+  }
+
+  h += `<footer><button id="backupBtn">💾 Save a backup</button><button id="restoreBtn">📂 Load a backup</button></footer>`;
+  $('#app').innerHTML = h;
+  wire();
+}
+
+// How much has gone into the joint account this week
+function jointThisWeek(id) {
+  const end = addDays(C.weekStart, 6);
+  return round2(D.entries.filter(e => e.pot === id && e.dir === 'in' && e.date >= C.weekStart && e.date <= end).reduce((t, e) => t + e.amount, 0));
+}
+const monthTarget = id => Math.round(weeklyOf(planFor(D, C.weekStart), id) * 52 / 12);
+
+function banner(inner, btn) { return `<div class="banner">${inner}<div class="actions"><button class="btn" data-dismiss>${btn}</button></div></div>`; }
+
+function lastWeekLines(w) {
+  const spent = round2(w.funBudget - w.funLeft);
+  return `<p>${w.funLeft < 0 ? `🎉 Last week was a generous one — savings happily covered the extra ${money(-w.funLeft)}.` : `🎉 Last week you used ${money(Math.max(0, spent))} of your ${money(w.funBudget)} fun pot.`}</p>
+    <p>${w.toTreat > 0 ? `🎁 ${money(w.toTreat)} hopped into your Treat Fund!` : '🎁 You enjoyed every cent of it.'}</p>
+    <p>${w.payback > 0 ? `💛 This week’s fun pot is a bit smaller (${money(w.payback)} less) to balance things out.` : '🌱 Your other pots topped up and carried on growing.'}</p>`;
+}
+
+
+function monthCard() {
+  const s = D.settings, startM = s.startDate.slice(0, 7), nowM = today().slice(0, 7);
+  if (!viewMonth) viewMonth = nowM;
+  const m = C.months[viewMonth] || { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, topups: 0, count: 0 };
+  const canBack = viewMonth > startM, canFwd = viewMonth < nowM;
+  let h = `<section class="card"><div class="month-head"><h2>${viewMonth === nowM ? 'This month' : 'Month'} · ${monthName(viewMonth)}</h2>
+    <span><button class="navbtn" data-month="-1" ${canBack ? '' : 'disabled'} aria-label="Previous month">‹</button>
+    <button class="navbtn" data-month="1" ${canFwd ? '' : 'disabled'} aria-label="Next month">›</button></span></div>`;
+  for (const p of s.pots) {
+    const spent = m.spent[p.id] || 0, added = m.added?.[p.id] || 0, plan = round2((m.planned[p.id] || 0) + added);
+    const extra = added ? ` Includes ${money(added)} you put in 💪` : '';
+    if (p.type === 'bills') {
+      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(added)} of ${money(monthTarget(p.id))}</span></div>
+        <div class="bar teal"><span style="width:${pct(added, monthTarget(p.id))}%"></span></div>
+        <div class="note">${added ? 'Put into the joint account this month 💪' : 'Your top-ups this month will show here.'}</div></div>`;
+    } else {
+      h += `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(p.emoji)} ${esc(p.name)}</span><span class="pot-amt">${money(spent)} of ${money(plan)}</span></div>
+        <div class="bar violet"><span style="width:${pct(spent, plan)}%"></span></div>
+        ${spent > plan && p.type === 'build' ? `<div class="note">Used some saved-up money — that’s what it’s for 🌼${extra}</div>` : extra ? `<div class="note">${extra.trim()}</div>` : ''}</div>`;
+    }
+  }
+  const extras = [];
+  if (m.toTreat > 0) extras.push(`🎁 ${money(m.toTreat)} went to your Treat Fund this month!`);
+  if (m.oneSav || m.oneTreat) extras.push(`✈️ One-offs: ${[m.oneSav ? money(m.oneSav) + ' from savings' : '', m.oneTreat ? money(m.oneTreat) + ' from the Treat Fund' : ''].filter(Boolean).join(' · ')}`);
+  extras.push(m.count >= 5 ? `✨ You logged ${m.count} things this month — lovely tracking.` : m.topups ? `🌼 Your pots topped up ${m.topups} ${m.topups === 1 ? 'time' : 'times'} this month.` : '🌱 A fresh month, ready to go.');
+  h += extras.map(x => `<p class="month-line">${x}</p>`).join('') + `<div class="note">Spent next to planned top-ups for the calendar month.</div></section>`;
+  return h;
+}
+
+/* ---------- buttons ---------- */
+function wire() {
+  $('#openSettings').onclick = openSettings;
+  $('#checkNums') && ($('#checkNums').onclick = openSettings);
+  $('#confirmNums') && ($('#confirmNums').onclick = () => { D.confirmed = true; save(); render(); toast('Brilliant — numbers locked in 🙌'); });
+  document.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = () => { D.notice = null; save(); render(); });
+  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => removeEntry(b.dataset.undo));
+  document.querySelectorAll('[data-month]').forEach(b => b.onclick = () => { viewMonth = shiftMonth(viewMonth, +b.dataset.month); render(); });
+  const keep = () => ({ a: $('#qAmount').value, n: $('#qNote').value });
+  const restore = k => { $('#qAmount').value = k.a; $('#qNote').value = k.n; };
+  document.querySelectorAll('[data-date]').forEach(b => b.onclick = () => { const k = keep(); qDate = b.dataset.date; render(); restore(k); });
+  $('#qDate').onchange = e => { if (!e.target.value) return; const k = keep(); qDate = e.target.value; render(); restore(k); };
+  document.querySelectorAll('[data-pot]').forEach(b => b.onclick = () => {
+    const amt = parseFloat($('#qAmount').value);
+    if (!amt) { $('#qAmount').focus(); toast('Pop the amount in first 🙂'); return; }
+    const before = C.bal.treat, pot = b.dataset.pot, date = qDate;
+    addEntry(amt, pot, $('#qNote').value.trim(), date);
+    recalc(); render();
+    const fp = D.settings.pots.find(p => p.type === 'fun');
+    if (date < C.weekStart) {
+      const diff = round2(C.bal.treat - before);
+      toast(`Added to ${nice(date)} — all updated ✨${diff && pot !== 'oneoff:treat' ? ` (Treat Fund ${diff > 0 ? 'up' : 'tweaked by'} ${money(Math.abs(diff))})` : ''}`);
+    } else if (pot.startsWith('oneoff:')) toast(`${pick(cheers)} Kept out of your weekly pots.`);
+    else if (fp && pot === fp.id) {
+      const left = C.pots[fp.id];
+      if (left > 0) { toast(`${pick(cheers)} Still ${money(left)} of fun left.`); confetti(); } else toast('All sorted 💛 Recharge on Monday.');
+    } else if (D.settings.pots.find(p => p.id === pot)?.type === 'bills') {
+      const left = C.pots[pot];
+      toast(left < 0 ? `🧾 ${money(amt)} bill paid — savings is covering ${money(-left)} until the pot catches up.` : `🧾 ${money(amt)} bill paid from your set-aside. Sorted!`);
+    } else toast(pick(cheers));
+  });
+  document.querySelectorAll('[data-joint]').forEach(b => b.onclick = () => {
+    const p = D.settings.pots.find(x => x.id === b.dataset.joint);
+    const amt = round2(weeklyOf(planFor(D, C.weekStart), p.id) - jointThisWeek(p.id));
+    if (!(amt > 0)) return;
+    addEntry(amt, p.id, '', today(), 'in'); recalc(); render();
+    toast(`🏠 ${money(amt)} into the joint account — bills sorted for the week! 🎉`); confetti();
+  });
+  $('#quickForm').onsubmit = e => e.preventDefault();
+  $('#backupBtn').onclick = backup;
+  $('#restoreBtn').onclick = () => $('#restoreFile').click();
+}
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 3200);
+}
+function confetti() {
+  const bits = ['🎉', '✨', '💛', '🌟', '🌼'];
+  for (let i = 0; i < 16; i++) {
+    const c = document.createElement('div'); c.className = 'confetti'; c.textContent = pick(bits);
+    c.style.left = Math.random() * 100 + 'vw'; c.style.animationDelay = Math.random() * .4 + 's';
+    document.body.appendChild(c); setTimeout(() => c.remove(), 2200);
+  }
+}
+
+/* ---------- backup ---------- */
+async function backup() {
+  const name = `fun-money-backup-${today()}.json`;
+  const text = JSON.stringify(D, null, 2);
+  try { // iPhone: open the Share sheet so you can tap "Save to Files"
+    const file = new File([text], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      await navigator.share({ files: [file], title: 'Fun Money backup' });
+      toast('Backup ready 💾 Choose “Save to Files”.');
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast('Backup saved to your Downloads 💾');
+}
+$('#restoreFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const data = migrate(JSON.parse(await f.text()));
+    if (!data) throw 0;
+    if (!confirm('Load this backup? It replaces what’s on screen now.')) return;
+    D = data; start();
+    toast('Backup loaded 📂');
+  } catch (err) { toast('That file doesn’t look like a Fun Money backup.'); }
+  e.target.value = '';
+};
+
+/* ---------- settings ---------- */
+function openSettings() {
+  const s = D.settings, b = C.bal, next = addDays(C.weekStart, 7), np = planFor(D, next);
+  const num = (id, val) => `<input type="number" step="0.01" id="${id}" value="${esc(val)}">`;
+  let h = `<div class="sheet"><h2>⚙️ Your numbers</h2>
+    <p class="note">Change anything here — no code needed. “Every week” amounts start from next Monday (${nice(next)}). To change things right now, edit “Available now”.</p>
+    <h3>Money in</h3>
+    <div class="field"><label>Weekly income<small>What you pay yourself each week</small></label>${num('s_income', np.income)}</div>
+    <h3>Pots</h3>`;
+  s.pots.forEach((p, i) => {
+    h += `<div class="potedit">
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:8px"><input id="p_emoji_${i}" value="${esc(p.emoji)}" aria-label="Emoji"><input id="p_name_${i}" value="${esc(p.name)}" aria-label="Pot name"></div>
+      <div class="row">
+        <div><label>Every week</label>${num('p_weekly_' + i, weeklyOf(np, p.id))}</div>
+        ${p.type === 'bills' ? '' : `<div><label>Available now</label>${num('p_left_' + i, C.pots[p.id] ?? 0)}</div>`}
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto"><input id="p_note_${i}" value="${esc(p.note || '')}" placeholder="Note (optional)" aria-label="Note">
+        ${p.type === 'build' ? `<button type="button" class="linkish" data-rmpot="${i}">remove</button>` : ''}</div>
+    </div>`;
+  });
+  const drip = round2(totalWeekly(D, np) - np.income);
+  h += `<button type="button" class="linkish" id="addPot">+ add a pot</button>
+    <p class="note">Pots add up to ${money(totalWeekly(D, np))} a week, so ${money(Math.abs(drip))} ${drip >= 0 ? 'comes from savings' : 'goes into savings'} each Monday.</p>
+    <h3>Overspending the fun pot</h3>
+    <label class="check"><input type="checkbox" id="s_payback" ${s.paybackOn ? 'checked' : ''}> Makes next week’s fun pot smaller</label>
+    <div class="field"><label>…but never below<small>So there’s always something</small></label>${num('s_floor', s.funFloor)}</div>
+    <p class="note">Your other pots can dip below $0 with no fuss — they just catch up.</p>
+    <h3>Balances right now</h3>
+    <div class="field"><label>💰 Savings</label>${num('s_savings', b.savings)}</div>
+    <div class="field"><label>🎁 Treat Fund</label>${num('s_treat', b.treat)}</div>
+    <div class="field"><label>Treat Fund goal</label>${num('s_goal', s.treatGoal)}</div>
+    <div class="field"><label>Treat Fund date<small>The big day you’re saving for</small></label><input type="date" id="s_tdate" value="${esc(s.treatDate)}"></div>
+    <div class="field"><label>🤝 Owed to me<small>Never counted as spendable</small></label>${num('s_owed', b.owed)}</div>
+    <h3>Planned one-offs from savings</h3><div id="oneoffs">${s.oneOffs.map(oneOffRow).join('')}</div>
+    <button type="button" class="linkish" id="addOneOff">+ add one</button>
+    <h3>Plan start</h3>
+    <div class="field"><label>Plan starts on<small>Changing this restarts the plan from today’s balances and clears entries</small></label><input type="date" id="s_start" value="${esc(s.startDate)}"></div>
+    <p><button type="button" class="linkish" id="resetAll">Start completely fresh (wipes everything)</button></p></div>
+    <div class="sheet-actions"><button type="button" class="btn ghost" id="cancelS">Cancel</button><button type="button" class="btn" id="saveS">Save</button></div>`;
+  $('#settingsForm').innerHTML = h;
+  const dlg = $('#settings'); if (!dlg.open) dlg.showModal(); dlg.scrollTop = 0;
+
+  $('#cancelS').onclick = () => dlg.close();
+  $('#addOneOff').onclick = () => { $('#oneoffs').insertAdjacentHTML('beforeend', oneOffRow({ name: '', amount: '' })); wireOneOffs(); };
+  wireOneOffs();
+  $('#addPot').onclick = () => {
+    collectSettings();
+    const id = 'pot_' + uid();
+    D.settings.pots.splice(D.settings.pots.findIndex(p => p.type === 'fun'), 0, { id, name: 'New pot', emoji: '🪴', type: 'build', note: '' });
+    save(); recalc(); openSettings();
+  };
+  document.querySelectorAll('[data-rmpot]').forEach(btn => btn.onclick = () => {
+    const p = D.settings.pots[+btn.dataset.rmpot];
+    if (!confirm(`Remove the “${p.name}” pot? Its entries will stop counting.`)) return;
+    collectSettings();
+    D.settings.pots = D.settings.pots.filter(x => x.id !== p.id); save(); recalc(); openSettings();
+  });
+  $('#resetAll').onclick = () => {
+    if (!confirm('Wipe everything and start again with the starter numbers? (Maybe save a backup first!)')) return;
+    D = defaultData(today()); dlg.close(); start(); toast('Fresh start 🌱');
+  };
+  $('#saveS').onclick = () => {
+    const newStart = $('#s_start').value;
+    if (newStart && newStart !== D.settings.startDate) {
+      if (!confirm(`Restart the plan from ${nice(newStart)}? Today’s balances become the starting balances and your entries are cleared.`)) return;
+      collectSettings(); recalc();
+      const np = planFor(D, addDays(C.weekStart, 7));
+      D.settings.startDate = newStart;
+      D.plans = [{ ...np, from: mondayOf(newStart) }];
+      D.opening = { savings: C.bal.savings, treat: C.bal.treat, owed: C.bal.owed, pots: { ...C.pots } };
+      D.entries = []; D.fixes = []; D.lastSeenMonday = mondayOf(today() < newStart ? newStart : today());
+    } else collectSettings();
+    D.confirmed = true; save(); dlg.close(); recalc(); render(); toast('Saved! 🙌');
+  };
+}
+function oneOffRow(o) {
+  return `<div class="oneoff"><input data-oo-name value="${esc(o.name)}" placeholder="What for"><input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-oo-rm aria-label="Remove">✕</button></div>`;
+}
+function wireOneOffs() { document.querySelectorAll('[data-oo-rm]').forEach(b => b.onclick = () => b.parentElement.remove()); }
+
+// Read the settings form. Weekly amounts → a plan from next Monday. Balances → a dated correction.
+function collectSettings() {
+  const s = D.settings, t = today(), fixDate = t < s.startDate ? s.startDate : t;
+  const n = (id, fb) => { const v = parseFloat($('#' + id)?.value); return isFinite(v) ? round2(v) : fb; };
+  const next = addDays(C.weekStart, 7), old = planFor(D, next);
+  const plan = { from: next, income: n('s_income', old.income), weekly: { ...old.weekly } };
+  const fix = (target, val, was) => { if (Math.abs(val - was) > 0.004) D.fixes.push({ seq: D.seq++, date: fixDate, target, value: val }); };
+  s.pots.forEach((p, i) => {
+    if (!$('#p_name_' + i)) return;
+    p.name = $('#p_name_' + i).value.trim() || p.name;
+    p.emoji = $('#p_emoji_' + i).value.trim() || p.emoji;
+    p.note = $('#p_note_' + i).value.trim();
+    plan.weekly[p.id] = n('p_weekly_' + i, weeklyOf(old, p.id));
+    if (p.type !== 'bills') fix('pot:' + p.id, n('p_left_' + i, C.pots[p.id] ?? 0), C.pots[p.id] ?? 0);
+  });
+  if (JSON.stringify([plan.income, plan.weekly]) !== JSON.stringify([old.income, old.weekly])) {
+    D.plans = D.plans.filter(p => p.from < next).concat(plan);
+  }
+  s.paybackOn = $('#s_payback').checked;
+  s.funFloor = n('s_floor', s.funFloor);
+  fix('savings', n('s_savings', C.bal.savings), C.bal.savings);
+  fix('treat', n('s_treat', C.bal.treat), C.bal.treat);
+  fix('owed', n('s_owed', C.bal.owed), C.bal.owed);
+  s.treatGoal = n('s_goal', s.treatGoal); s.treatDate = $('#s_tdate').value || s.treatDate;
+  s.oneOffs = [...document.querySelectorAll('.oneoff')].map(r => ({ name: r.querySelector('[data-oo-name]').value.trim(), amount: parseFloat(r.querySelector('[data-oo-amt]').value) || 0 }))
+    .filter(o => o.name || o.amount);
+  save();
+}
+
+/* ---------- start! ---------- */
+// Bills are now just a weekly transfer to the joint account — tidy up anything from before
+function tidy() {
+  const billIds = D.settings.pots.filter(p => p.type === 'bills').map(p => p.id);
+  for (const p of D.settings.pots) if (p.type === 'bills' && (p.name === 'Bills set-aside' || /builds up each week/i.test(p.note || ''))) {
+    p.name = 'Joint account top-up'; p.emoji = '🏠'; p.note = 'Pays the bills from the joint account. Tap the button once you’ve moved the money.';
+  }
+  D.entries = D.entries.filter(e => !billIds.includes(e.pot) || e.dir === 'in'); // keep top-up ticks, drop old 'bill paid' entries
+  for (const p of D.settings.pots) if (p.type === 'bills' && /nothing to log here/.test(p.note || '')) p.note = 'Pays the bills from the joint account. Tap the button once you’ve moved the money.';
+  D.fixes = D.fixes.filter(f => !billIds.some(id => f.target === 'pot:' + id));
+}
+
+function start() {
+  tidy();
+  const cur = mondayOf(today());
+  if (D.lastSeenMonday && cur > D.lastSeenMonday && cur > mondayOf(D.settings.startDate)) {
+    const weeks = Math.round(daysBetween(D.lastSeenMonday, cur) / 7);
+    D.notice = weeks >= 2 ? { kind: 'catchup', weeks } : { kind: 'newweek' };
+  }
+  if (!D.lastSeenMonday || cur > D.lastSeenMonday) D.lastSeenMonday = cur;
+  save(); recalc(); render();
+}
+D = load() || defaultData(today());
+start();
+// Works without signal once it's on a proper web address (not when opened as a file)
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
