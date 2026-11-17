@@ -97,6 +97,11 @@
   .oneoffs-mc { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 4px; }
   .oneoffs-mc h3 { font-size: .95rem; margin: 10px 0 0; }
   .move-btn { margin-top: 8px; }
+  .savings, .owed { margin-top: 16px; }
+  .big-amt { font-size: 1.3rem; }
+  .bar-ends { display: flex; justify-content: space-between; font-size: .8rem; color: var(--soft); margin-top: 4px; }
+  .runway { margin: 10px 0 2px; }
+  .repay-btn { margin-top: 8px; color: var(--ink); }
   .sheet-actions { position: sticky; bottom: 0; background: var(--card); padding: 14px 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid var(--line); }
   .linkish { background: none; color: var(--soft); text-decoration: underline; padding: 6px 0; }
   .check { display: flex; gap: 10px; align-items: center; font-weight: 600; margin: 8px 0; }
@@ -274,7 +279,7 @@ function compute(d, upto) {
   const bal = { savings: +d.opening.savings || 0, treat: +d.opening.treat || 0, owed: +d.opening.owed || 0 };
   const pots = {}; for (const p of s.pots) pots[p.id] = +(d.opening.pots?.[p.id] ?? 0);
   const months = {};
-  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, moved: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 });
+  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, moved: 0, repaid: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 });
   const used = {}; // how much of each planned one-off has been used
   const add = (o, k, v) => { o[k] = round2((o[k] || 0) + v); };
   for (const p of s.pots) add(M(start.slice(0, 7)).planned, p.id, pots[p.id]); // the starting amounts count as this month's plan
@@ -294,6 +299,7 @@ function compute(d, upto) {
       return;
     }
     const m = M(ev.date.slice(0, 7)); m.count++;
+    if (ev.pot === 'repay') { bal.savings += ev.amount; bal.owed -= ev.amount; m.repaid = round2(m.repaid + ev.amount); return; } // 🤝 paid back
     if (ev.pot.startsWith('move:')) { // planned move from savings into the Treat Fund
       bal.savings -= ev.amount; bal.treat += ev.amount; m.moved = round2(m.moved + ev.amount); add(used, ev.pot.slice(5), ev.amount); return;
     }
@@ -377,15 +383,56 @@ function funMessage(left, budget) {
 const cheers = ['Logged! 🎉', 'Nice one! 🌟', 'Done & dusted ✨', 'Got it! 💛', 'Sorted! 🙌'];
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : (a > 0 ? 100 : 0);
 const oneOffById = id => D.settings.oneOffs.find(o => o.id === id);
-const potLabel = id => id.startsWith('move:') ? '➡️ Moved to Treat Fund' + (o => o ? ` (${o.name})` : '')(oneOffById(id.slice(5)))
+const potLabel = id => id === 'repay' ? '🤝 Paid back' : id.startsWith('move:') ? '➡️ Moved to Treat Fund' + (o => o ? ` (${o.name})` : '')(oneOffById(id.slice(5)))
   : id.startsWith('oneoff:') && id !== 'oneoff:savings' && id !== 'oneoff:treat' ? (o => o ? `${o.emoji} ${o.name}` : '📌 One-off (savings)')(oneOffById(id.slice(7)))
   : id === 'oneoff:savings' ? '✈️ One-off (savings)' : id === 'oneoff:treat' ? '🎁 One-off (Treat Fund)'
   : (p => p ? p.emoji + ' ' + p.name : 'Removed pot')(potById(id));
 const shareLabel = () => +D.settings.myShare === 50 ? 'Shared 50/50' : `Shared (my share ${+D.settings.myShare}%)`;
+// How long is a number of weeks, in plain words
+function lengthText(weeks) {
+  const months = Math.round(weeks * 7 / 30.44);
+  if (months < 2) return `about ${Math.max(1, Math.round(weeks))} ${Math.round(weeks) === 1 ? 'week' : 'weeks'}`;
+  if (months < 12) return `about ${months} months`;
+  const y = Math.floor(months / 12), mo = months % 12;
+  return `about ${y} ${y === 1 ? 'year' : 'years'}${mo ? ` ${mo} ${mo === 1 ? 'month' : 'months'}` : ''}`;
+}
+const niceLong = s => parse(s).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
+// The Treat Fund top-up still to come: only the gap to the goal, never more than planned
+function treatGap(o, bal = C.bal, used = C.used) {
+  const left = Math.max(0, (+o.amount || 0) - (used[o.id] || 0));
+  return round2(Math.min(left, Math.max(0, (+D.settings.treatGoal || 0) - bal.treat)));
+}
+// Planned one-offs still to come (Christmas left, Treat Fund gap)
+function oneOffsToCome(bal = C.bal, used = C.used) {
+  return round2(D.settings.oneOffs.reduce((t, o) => t + (o.kind === 'move' ? treatGap(o, bal, used) : Math.max(0, (+o.amount || 0) - (used[o.id] || 0))), 0));
+}
+// Real weekly pace from your monthly check-ins (needs two, at least 4 weeks apart)
+function realDrip() {
+  const ci = Object.values(D.checkins || {}).filter(c => c && c.date && isFinite(c.real)).sort((a, b) => a.date < b.date ? -1 : 1);
+  if (ci.length < 2) return null;
+  const a = ci[0], b = ci[ci.length - 1], days = daysBetween(a.date, b.date);
+  return days >= 28 ? round2(-(b.real - a.real) / (days / 7)) : null;
+}
+// Where savings is heading. drip > 0 means going down each week.
+function projection(savings = C.bal.savings, comp = C) {
+  const s = D.settings, floor = +s.savingsFloor, plan = planFor(D, comp.weekStart);
+  const planDrip = expectedDrip(D, plan), real = realDrip();
+  const drip = real != null ? real : planDrip;
+  const toCome = oneOffsToCome(comp.bal, comp.used);
+  const out = { drip, planDrip, real, toCome, floor: isFinite(floor) && s.savingsFloor !== '' && s.savingsFloor != null ? floor : null };
+  if (out.floor == null) return { ...out, state: 'nofloor' };
+  const headroom = savings - toCome - out.floor;
+  if (savings < out.floor) return { ...out, state: 'below', under: round2(out.floor - savings) };
+  if (!(drip > 0)) return { ...out, state: drip < 0 ? 'growing' : 'steady' };
+  const weeks = Math.max(0, headroom / drip);
+  return { ...out, state: 'drifting', weeks, date: addDays(today(), Math.round(weeks * 7)) };
+}
 function runwayText(savings, drip) {
-  if (!(drip > 0)) return 'Savings is growing — no runway worries 🌱';
-  const w = Math.floor(savings / drip);
-  return w >= 104 ? `about ${Math.floor(w / 52)} years (${w} weeks)` : `about ${w} weeks`;
+  const pr = projection(savings);
+  if (pr.state === 'nofloor') return drip > 0 ? lengthText(savings / drip) : 'growing 🌱';
+  if (pr.state === 'growing' || pr.state === 'steady') return 'holding steady 🌱';
+  if (pr.state === 'below') return `${money(pr.under)} under your floor`;
+  return `${lengthText(pr.weeks)} to your ${money(pr.floor)} floor`;
 }
 
 /* ---------- drawing the screen ---------- */
@@ -470,10 +517,8 @@ function render() {
     <div class="pot"><div class="pot-top"><span class="pot-name">🎁 Treat Fund</span><span class="pot-amt">${money(b.treat)} of ${money(s.treatGoal)}</span></div>
       <div class="bar gold"><span style="width:${pct(b.treat, s.treatGoal)}%"></span></div>
       <div class="note">${daysTo > 0 ? `${daysTo} days to go (${nice(s.treatDate)}) ✈️` : 'Treat time! 🥳'} Leftover fun money lands here.</div></div>
-    <div class="grid2">
-      <div class="stat"><div class="k">💰 Savings</div><div class="v">${money(b.savings)}</div><div class="note">${planned ? `${money(b.savings - planned)} after planned one-offs` : ''}</div></div>
-      <div class="stat"><div class="k">🤝 Owed to me</div><div class="v">${money(b.owed)}</div><div class="note">${owedWk > 0 ? `+${money(owedWk)} this week. ` : ''}Not counted as spendable.</div></div>
-    </div>
+    ${savingsBlock(planned)}
+    ${owedBlock(owedWk)}
     ${oneOffRows()}
     <div class="note">${drip > 0 ? `💧 Gentle savings drip: about ${money(drip)} a week. That’s the plan doing its job.` : `🌱 Savings grows by about ${money(-drip)} a week.`}
       ${(thisPlan.recurring || []).length ? ` Includes ${thisPlan.recurring.map(r => esc(r.name)).join(', ')}, counted automatically.` : ''}</div></section>`;
@@ -486,13 +531,22 @@ function render() {
       ${recent.map(t => {
         const mine = t.split != null ? round2(t.amount * t.split) : null;
         return `<div class="tx"><span>${esc(potLabel(t.pot))}${t.note ? ' · ' + esc(t.note) : ''}<br><span class="note">${nice(t.date)}${mine != null ? ` · your share ${money(mine)}, ${money(t.amount - mine)} owed to you` : ''}</span></span>
-        <span><strong>${t.amount < 0 ? 'refund ' + money(-t.amount) : money(t.amount)}</strong> <button data-undo="${t.id}" aria-label="Remove">✕</button></span></div>`;
+        <span><strong>${t.pot === 'repay' ? '+' + money(t.amount) : t.amount < 0 ? 'refund ' + money(-t.amount) : money(t.amount)}</strong> <button data-undo="${t.id}" aria-label="Remove">✕</button></span></div>`;
       }).join('')}</section>`;
   }
 
   h += `<footer><button id="backupBtn">💾 Save a backup</button><button id="restoreBtn">📂 Load a backup</button></footer>`;
   $('#app').innerHTML = h;
   wire();
+  milestone();
+}
+function milestone() {
+  const lvl = Math.floor(C.bal.savings / 500);
+  if (D.milestone == null) { D.milestone = lvl; save(); return; }
+  if (lvl > D.milestone) {
+    D.milestone = lvl; save();
+    setTimeout(() => { toast(`💰 Savings passed ${money(lvl * 500)} — a new high! 🎉`); confetti(); }, 3700);
+  }
 }
 
 // "✏️ Fix" on any pot: this is really what's left
@@ -533,15 +587,50 @@ function checkGreenLight(amount, pot) {
     runwayBefore: runwayText(C.bal.savings, drip), runwayAfter: runwayText(after.bal.savings, drip) };
 }
 
+/* ---------- savings: floor, goal and runway ---------- */
+let repayOpen = false;
+function savingsBlock(planned) {
+  const s = D.settings, b = C.bal, pr = projection();
+  const floor = pr.floor, goal = +s.savingsGoal || null;
+  let h = `<div class="savings"><div class="pot-top"><span class="pot-name">💰 Savings</span><span class="pot-amt big-amt">${money(b.savings)}</span></div>`;
+  if (floor != null && goal && goal > floor) {
+    h += `<div class="bar teal goalbar"><span style="width:${pct(b.savings - floor, goal - floor)}%"></span></div>
+      <div class="bar-ends"><span>${money(floor)} floor</span><span>🏁 ${money(goal)}</span></div>
+      <div class="note">${b.savings >= floor ? `${money(b.savings - floor)} above your safety floor · ` : ''}${b.savings < goal ? `${money(goal - b.savings)} to go to 🏁 ${money(goal)}` : `You made it to ${money(goal)}! 🏁🎉`}</div>`;
+  } else h += `<div class="note">🏁 Add a safety floor and a savings goal in ⚙️ Settings to see your runway.</div>`;
+  if (planned) h += `<div class="note">${money(b.savings - planned)} once your planned one-offs are done.</div>`;
+  const pace = pr.real != null ? ` (your real pace from check-ins${pr.real < pr.planDrip ? ' — better than planned 🎉' : ''})` : '';
+  if (pr.state === 'drifting') h += `<p class="runway">🛤️ At this pace you’d reach your ${money(floor)} floor around <strong>${niceLong(pr.date)}</strong> (${lengthText(pr.weeks)}).</p>
+      <div class="note">Savings drifts about ${money(pr.drip)} a week${pace}.</div>`;
+  else if (pr.state === 'growing') h += `<p class="runway">🌱 Growing — about ${money(-pr.drip)} a week${pace}.</p>`;
+  else if (pr.state === 'steady') h += `<p class="runway">🌱 Holding steady${pace}.</p>`;
+  else if (pr.state === 'below') h += `<p class="runway">💛 You’re ${money(pr.under)} under your floor for now. Every repayment helps lift you back up 🌱</p>`;
+  return h + `</div>`;
+}
+function owedBlock(owedWk) {
+  const b = C.bal, pr = projection();
+  let h = `<div class="owed"><div class="pot-top"><span class="pot-name">🤝 Owed to me</span><span class="pot-amt">${money(b.owed)}</span></div>
+    <div class="note">${owedWk > 0 ? `+${money(owedWk)} this week. ` : ''}Not counted as spendable.${pr.drip > 0 ? ` About ${money(pr.drip)} a week paid back keeps your savings steady.` : ''}</div>`;
+  h += repayOpen ? `<div class="inbox"><label class="note" for="repayAmt">How much was paid back?</label><input id="repayAmt" type="number" inputmode="decimal" step="0.01" placeholder="$0">
+      <button type="button" class="btn" id="repayGo">Add it</button><button type="button" class="linkish" id="repayCancel">cancel</button></div>`
+    : `<button type="button" class="btn ghost repay-btn" id="repayOpen">🤝 Paid back</button>`;
+  return h + `</div>`;
+}
+
 /* ---------- banners at the top ---------- */
 // Planned one-offs: each has its own little budget (spend) or a one-tap move (to the Treat Fund)
 function oneOffRows() {
   const list = D.settings.oneOffs; if (!list.length) return '';
   return `<div class="oneoffs-mc"><h3>Planned from savings</h3>` + list.map(o => {
     const amt = +o.amount || 0, u = C.used[o.id] || 0, left = round2(amt - u);
-    if (o.kind === 'move') return `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(o.emoji)} ${esc(o.name)}</span><span class="pot-amt">${money(u)} of ${money(amt)} moved</span></div>
-      <div class="bar gold"><span style="width:${pct(u, amt)}%"></span></div>
-      ${left > 0 ? `<button type="button" class="btn move-btn" data-move="${esc(o.id)}">➡️ Move ${money(left)} into the Treat Fund</button>` : `<div class="note"><strong>Done ✓</strong> Moved into your Treat Fund 🎉</div>`}</div>`;
+    if (o.kind === 'move') {
+      const gap = treatGap(o), tdy = today(), remindFrom = addDays(D.settings.treatDate, -7), soon = tdy >= remindFrom;
+      return `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(o.emoji)} ${esc(o.name)}</span><span class="pot-amt">${u ? `${money(u)} moved` : `up to ${money(amt)}`}</span></div>
+      ${gap <= 0 ? `<div class="note"><strong>Done ✓</strong> Your Treat Fund is at its goal 🎉</div>`
+        : soon ? `<button type="button" class="btn move-btn" data-move="${esc(o.id)}">🎁 Top up the Treat Fund to ${money(D.settings.treatGoal)} (moves ${money(gap)})</button>`
+        : `<div class="note">⏳ Just in time: the money stays in savings for now. On ${nice(remindFrom)} I’ll remind you to top up the gap — about ${money(gap)} today, and shrinking as leftover fun money flows in.
+            <button type="button" class="linkish" data-move="${esc(o.id)}">Move it now instead</button></div>`}</div>`;
+    }
     return `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(o.emoji)} ${esc(o.name)}</span><span class="pot-amt">${money(u)} of ${money(amt)} used</span></div>
       <div class="bar violet"><span style="width:${pct(u, amt)}%"></span></div>
       <div class="note">${left > 0 ? `${money(left)} left. Log it with the ${esc(o.emoji)} ${esc(o.name)} button in Quick add.` : left === 0 ? 'All used — lovely planning 🌟' : `A little over (${money(-left)}) — savings has it covered 💛`}</div></div>`;
@@ -585,6 +674,20 @@ function banners() {
       <div class="inbox"><input id="ciAmt" type="number" inputmode="decimal" step="0.01" placeholder="$0" aria-label="Real savings balance"></div>
       <div class="actions"><button class="btn" id="ciSave">Check it</button><button class="btn ghost" id="ciLater">Not now</button></div></div>`;
   }
+  // Calm heads-up, 3 months before the safety floor
+  const pr = projection();
+  if (pr.state === 'drifting' && pr.weeks <= 13 && !(D.snooze.floor >= tdy)) {
+    const help = Math.max(50, Math.ceil(pr.drip * 8 / 50) * 50), later = addDays(pr.date, Math.round(help / pr.drip * 7));
+    h += `<div class="banner"><p><strong>💛 Gentle heads-up</strong> At this pace you’d reach your ${money(pr.floor)} floor around ${niceLong(pr.date)} (${lengthText(pr.weeks)}).</p>
+      <p>A ${money(help)} repayment would push that out to about ${niceLong(later)}. Every little bit helps 🌱</p>
+      <div class="actions"><button class="btn ghost" id="floorLater">Got it</button></div></div>`;
+  }
+  // Treat Fund top-up reminder, from a week before the big day
+  for (const o of s.oneOffs.filter(o => o.kind === 'move')) {
+    const gap = treatGap(o), daysLeft = daysBetween(tdy, s.treatDate);
+    if (gap > 0 && daysLeft >= 0 && daysLeft <= 7) h += `<div class="banner"><p><strong>🎁 The big day is in ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}!</strong> Time to top up your Treat Fund to ${money(s.treatGoal)}.</p>
+      <div class="actions"><button class="btn" data-move="${esc(o.id)}">Top it up (moves ${money(gap)})</button></div></div>`;
+  }
   // Gentle monthly backup reminder
   const since = D.lastBackup || s.startDate;
   if (daysBetween(since, tdy) >= 30 && !(D.snooze.backup >= tdy)) {
@@ -619,6 +722,7 @@ function monthCard() {
   const extras = [];
   if (m.toTreat > 0) extras.push(`🎁 ${money(m.toTreat)} went to your Treat Fund this month!`);
   if (m.owedAdded) extras.push(`🤝 ${money(m.owedAdded)} added to “owed to me” this month.`);
+  if (m.repaid) extras.push(`🤝 ${money(m.repaid)} paid back this month 🎉`);
   if (m.moved) extras.push(`➡️ ${money(m.moved)} moved from savings into your Treat Fund 🎉`);
   if (m.oneSav || m.oneTreat) extras.push(`✈️ One-offs: ${[m.oneSav ? money(m.oneSav) + ' from savings' : '', m.oneTreat ? money(m.oneTreat) + ' from the Treat Fund' : ''].filter(Boolean).join(' · ')}`);
   if (m.recurring) extras.push(`🔁 ${money(m.recurring)} of recurring costs, counted automatically.`);
@@ -662,10 +766,29 @@ function wire() {
   });
   $('#quickForm').onsubmit = e => e.preventDefault();
   document.querySelectorAll('[data-move]').forEach(b => b.onclick = () => {
-    const o = oneOffById(b.dataset.move), left = round2(o.amount - (C.used[o.id] || 0)); if (!(left > 0)) return;
-    addEntry(left, 'move:' + o.id, '', today()); recalc(); render();
-    toast(`➡️ ${money(left)} moved into your Treat Fund! Now ${money(C.bal.treat)} 🎉`); confetti();
+    const o = oneOffById(b.dataset.move), gap = treatGap(o); if (!(gap > 0)) return;
+    addEntry(gap, 'move:' + o.id, '', today()); recalc(); render();
+    toast(`🎁 ${money(gap)} moved — your Treat Fund is at ${money(C.bal.treat)}! 🎉`); confetti();
   });
+
+  // 🤝 paid back
+  $('#repayOpen') && ($('#repayOpen').onclick = () => { repayOpen = true; render(); $('#repayAmt').focus(); });
+  if ($('#repayGo')) {
+    const go = () => {
+      const amt = parseFloat($('#repayAmt').value); if (!(amt > 0)) { $('#repayAmt').focus(); return; }
+      const before = projection();
+      addEntry(amt, 'repay', '', today()); repayOpen = false; recalc(); render();
+      const after = projection();
+      const gain = before.state === 'drifting' && after.state === 'drifting' ? Math.round(after.weeks - before.weeks) : 0;
+      toast(gain >= 1 ? `${money(amt)} back! Your runway just got ${gain} ${gain === 1 ? 'week' : 'weeks'} longer 🎉`
+        : before.state === 'drifting' && after.state !== 'drifting' ? `${money(amt)} back! Savings is holding steady now 🌱🎉` : `${money(amt)} back — savings now ${money(C.bal.savings)} 🎉`);
+      confetti();
+    };
+    $('#repayGo').onclick = go;
+    $('#repayAmt').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    $('#repayCancel').onclick = () => { repayOpen = false; render(); };
+  }
+  $('#floorLater') && ($('#floorLater').onclick = () => { D.snooze.floor = addDays(today(), 13); save(); render(); });
 
   // ✏️ fix any pot
   document.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => { fixPot = b.dataset.fix; render(); $('#fixAmt').focus(); $('#fixAmt').select(); });
@@ -817,7 +940,7 @@ function applyPlan(P) {
   s.pots = P.pots.map(p => ({ id: p.id, name: p.name, emoji: p.emoji || '🪴', type: p.type === 'fun' ? 'fun' : 'build', shared: !!p.shared, note: p.note || '' }));
   D.plans = D.plans.filter(p => p.from < wk).concat({ from: wk, income: +P.income, weekly, recurring: (P.recurring || []).map(r => ({ name: r.name, amount: +r.amount, every: r.every || 'week' })) });
   const prevOneOffs = s.oneOffs;
-  for (const k of ['myShare', 'paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) if (P[k] !== undefined) s[k] = P[k];
+  for (const k of ['myShare', 'paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs', 'savingsFloor', 'savingsGoal']) if (P[k] !== undefined) s[k] = P[k];
   s.oneOffs = normalizeOneOffs(s.oneOffs, prevOneOffs);
   recalc();
   if (P.balances && !D.planApplied) for (const k of ['savings', 'treat', 'owed']) if (isFinite(+P.balances[k]) && Math.abs(+P.balances[k] - C.bal[k]) > 0.004) addFix(k, +P.balances[k]);
@@ -856,6 +979,9 @@ function openSettings() {
     <button type="button" class="linkish" id="addRec">+ add one</button>
     <p class="note">Pots ${money(totalWeekly(D, np))} + recurring ${money(recurringWeekly(np))} + the shared half you front ${money(partnerWeekly(D, np))}, against income ${money(np.income)}:
       ${drip > 0 ? `a gentle savings drip of about ${money(drip)} a week.` : `savings grows about ${money(-drip)} a week.`}</p>
+    <h3>Savings safety net</h3>
+    <div class="field"><label>Safety floor<small>Savings you never want to go below</small></label>${num('s_floor_sav', s.savingsFloor ?? '')}</div>
+    <div class="field"><label>Savings goal 🏁<small>Where you’d love to get to</small></label>${num('s_goal_sav', s.savingsGoal ?? '')}</div>
     <h3>Overspending the fun pot</h3>
     <label class="check"><input type="checkbox" id="s_payback" ${s.paybackOn ? 'checked' : ''}> Makes next week’s fun pot smaller</label>
     <div class="field"><label>…but never below<small>So there’s always something</small></label>${num('s_floor', s.funFloor)}</div>
@@ -914,7 +1040,7 @@ function oneOffRow(o) {
   const k = o.kind || 'spend';
   return `<div class="oneoff" data-oo-id="${esc(o.id || '')}"><input data-oo-emoji value="${esc(o.emoji || '')}" aria-label="Emoji" placeholder="🎄"><input data-oo-name value="${esc(o.name)}" placeholder="What for">
     <input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-rm-row aria-label="Remove">✕</button>
-    <select data-oo-kind aria-label="What kind"><option value="spend"${k === 'spend' ? ' selected' : ''}>Spend from savings (gets a Quick add button)</option><option value="move"${k === 'move' ? ' selected' : ''}>Move into the Treat Fund</option></select></div>`;
+    <select data-oo-kind aria-label="What kind"><option value="spend"${k === 'spend' ? ' selected' : ''}>Spend from savings (gets a Quick add button)</option><option value="move"${k === 'move' ? ' selected' : ''}>Top up the Treat Fund to its goal (just in time)</option></select></div>`;
 }
 function recRow(r) {
   const opt = v => `<option value="${v}"${(r.every || 'week') === v ? ' selected' : ''}>a ${v}</option>`;
@@ -945,6 +1071,8 @@ function collectSettings() {
     D.plans = D.plans.filter(p => p.from < next).concat(plan);
   }
   s.myShare = Math.min(100, Math.max(1, n('s_share', s.myShare)));
+  const fl = parseFloat($('#s_floor_sav').value), gl = parseFloat($('#s_goal_sav').value);
+  s.savingsFloor = isFinite(fl) ? round2(fl) : null; s.savingsGoal = isFinite(gl) ? round2(gl) : null;
   s.paybackOn = $('#s_payback').checked;
   s.funFloor = n('s_floor', s.funFloor);
   fix('savings', n('s_savings', C.bal.savings), C.bal.savings);
