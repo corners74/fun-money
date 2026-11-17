@@ -92,7 +92,11 @@
   .potedit .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
   .potedit .row label { font-size: .85rem; color: var(--soft); display: block; }
   .potedit input { background: var(--card); }
-  .oneoff { display: grid; grid-template-columns: 1fr 110px 40px; gap: 8px; margin: 6px 0; }
+  .oneoff { display: grid; grid-template-columns: 52px 1fr 90px 34px; gap: 6px; margin: 10px 0; }
+  .oneoff select { grid-column: 1 / -1; font-size: .9rem; }
+  .oneoffs-mc { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .oneoffs-mc h3 { font-size: .95rem; margin: 10px 0 0; }
+  .move-btn { margin-top: 8px; }
   .sheet-actions { position: sticky; bottom: 0; background: var(--card); padding: 14px 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid var(--line); }
   .linkish { background: none; color: var(--soft); text-decoration: underline; padding: 6px 0; }
   .check { display: flex; gap: 10px; align-items: center; font-weight: 600; margin: 8px 0; }
@@ -270,7 +274,8 @@ function compute(d, upto) {
   const bal = { savings: +d.opening.savings || 0, treat: +d.opening.treat || 0, owed: +d.opening.owed || 0 };
   const pots = {}; for (const p of s.pots) pots[p.id] = +(d.opening.pots?.[p.id] ?? 0);
   const months = {};
-  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 });
+  const M = k => months[k] || (months[k] = { spent: {}, planned: {}, toTreat: 0, oneSav: 0, oneTreat: 0, moved: 0, owedAdded: 0, recurring: 0, topups: 0, count: 0 });
+  const used = {}; // how much of each planned one-off has been used
   const add = (o, k, v) => { o[k] = round2((o[k] || 0) + v); };
   for (const p of s.pots) add(M(start.slice(0, 7)).planned, p.id, pots[p.id]); // the starting amounts count as this month's plan
   let funBudget = fun ? pots[fun.id] : 0;
@@ -289,6 +294,12 @@ function compute(d, upto) {
       return;
     }
     const m = M(ev.date.slice(0, 7)); m.count++;
+    if (ev.pot.startsWith('move:')) { // planned move from savings into the Treat Fund
+      bal.savings -= ev.amount; bal.treat += ev.amount; m.moved = round2(m.moved + ev.amount); add(used, ev.pot.slice(5), ev.amount); return;
+    }
+    if (ev.pot.startsWith('oneoff:') && ev.pot !== 'oneoff:savings' && ev.pot !== 'oneoff:treat') { // a named one-off, e.g. Christmas
+      bal.savings -= ev.amount; m.oneSav = round2(m.oneSav + ev.amount); add(used, ev.pot.slice(7), ev.amount); return;
+    }
     if (ev.pot === 'oneoff:savings') { bal.savings -= ev.amount; m.oneSav = round2(m.oneSav + ev.amount); }
     else if (ev.pot === 'oneoff:treat') { bal.treat -= ev.amount; m.oneTreat = round2(m.oneTreat + ev.amount); }
     else if (known.has(ev.pot)) {
@@ -330,7 +341,7 @@ function compute(d, upto) {
   }
   for (const k in bal) bal[k] = round2(bal[k]);
   for (const k in pots) pots[k] = round2(pots[k]);
-  return { bal, pots, funBudget, weekStart: monday, months, history };
+  return { bal, pots, funBudget, weekStart: monday, months, history, used };
 }
 const recalc = () => { C = compute(D, today()); };
 
@@ -365,7 +376,10 @@ function funMessage(left, budget) {
 }
 const cheers = ['Logged! 🎉', 'Nice one! 🌟', 'Done & dusted ✨', 'Got it! 💛', 'Sorted! 🙌'];
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : (a > 0 ? 100 : 0);
-const potLabel = id => id === 'oneoff:savings' ? '✈️ One-off (savings)' : id === 'oneoff:treat' ? '🎁 One-off (Treat Fund)'
+const oneOffById = id => D.settings.oneOffs.find(o => o.id === id);
+const potLabel = id => id.startsWith('move:') ? '➡️ Moved to Treat Fund' + (o => o ? ` (${o.name})` : '')(oneOffById(id.slice(5)))
+  : id.startsWith('oneoff:') && id !== 'oneoff:savings' && id !== 'oneoff:treat' ? (o => o ? `${o.emoji} ${o.name}` : '📌 One-off (savings)')(oneOffById(id.slice(7)))
+  : id === 'oneoff:savings' ? '✈️ One-off (savings)' : id === 'oneoff:treat' ? '🎁 One-off (Treat Fund)'
   : (p => p ? p.emoji + ' ' + p.name : 'Removed pot')(potById(id));
 const shareLabel = () => +D.settings.myShare === 50 ? 'Shared 50/50' : `Shared (my share ${+D.settings.myShare}%)`;
 function runwayText(savings, drip) {
@@ -415,6 +429,7 @@ function render() {
       </div>
       <div class="chips">${s.pots.filter(p => p.type !== 'fun').concat(s.pots.filter(p => p.type === 'fun')).map(p => `<button type="button" class="chip" data-pot="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`).join('')}</div>
       <div class="chips">
+        ${s.oneOffs.filter(o => o.kind === 'spend').map(o => `<button type="button" class="chip small" data-pot="oneoff:${esc(o.id)}">${esc(o.emoji)} ${esc(o.name)}</button>`).join('')}
         <button type="button" class="chip small" data-pot="oneoff:savings">✈️ One-off from savings</button>
         <button type="button" class="chip small" data-pot="oneoff:treat">🎁 One-off from Treat Fund</button>
       </div>
@@ -448,7 +463,7 @@ function render() {
   h += monthCard();
 
   // money corner
-  const planned = s.oneOffs.reduce((t, o) => t + (+o.amount || 0), 0);
+  const planned = s.oneOffs.reduce((t, o) => t + Math.max(0, (+o.amount || 0) - (C.used[o.id] || 0)), 0); // what's still to come
   const daysTo = daysBetween(tdy, s.treatDate);
   const drip = expectedDrip(D, thisPlan);
   h += `<section class="card"><h2>Money corner</h2>
@@ -459,7 +474,7 @@ function render() {
       <div class="stat"><div class="k">💰 Savings</div><div class="v">${money(b.savings)}</div><div class="note">${planned ? `${money(b.savings - planned)} after planned one-offs` : ''}</div></div>
       <div class="stat"><div class="k">🤝 Owed to me</div><div class="v">${money(b.owed)}</div><div class="note">${owedWk > 0 ? `+${money(owedWk)} this week. ` : ''}Not counted as spendable.</div></div>
     </div>
-    ${s.oneOffs.length ? `<div class="note" style="margin-top:10px">Planned from savings: ${s.oneOffs.map(o => `${esc(o.name)} ${money(o.amount)}`).join(' · ')}</div>` : ''}
+    ${oneOffRows()}
     <div class="note">${drip > 0 ? `💧 Gentle savings drip: about ${money(drip)} a week. That’s the plan doing its job.` : `🌱 Savings grows by about ${money(-drip)} a week.`}
       ${(thisPlan.recurring || []).length ? ` Includes ${thisPlan.recurring.map(r => esc(r.name)).join(', ')}, counted automatically.` : ''}</div></section>`;
 
@@ -519,6 +534,28 @@ function checkGreenLight(amount, pot) {
 }
 
 /* ---------- banners at the top ---------- */
+// Planned one-offs: each has its own little budget (spend) or a one-tap move (to the Treat Fund)
+function oneOffRows() {
+  const list = D.settings.oneOffs; if (!list.length) return '';
+  return `<div class="oneoffs-mc"><h3>Planned from savings</h3>` + list.map(o => {
+    const amt = +o.amount || 0, u = C.used[o.id] || 0, left = round2(amt - u);
+    if (o.kind === 'move') return `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(o.emoji)} ${esc(o.name)}</span><span class="pot-amt">${money(u)} of ${money(amt)} moved</span></div>
+      <div class="bar gold"><span style="width:${pct(u, amt)}%"></span></div>
+      ${left > 0 ? `<button type="button" class="btn move-btn" data-move="${esc(o.id)}">➡️ Move ${money(left)} into the Treat Fund</button>` : `<div class="note"><strong>Done ✓</strong> Moved into your Treat Fund 🎉</div>`}</div>`;
+    return `<div class="pot"><div class="pot-top"><span class="pot-name">${esc(o.emoji)} ${esc(o.name)}</span><span class="pot-amt">${money(u)} of ${money(amt)} used</span></div>
+      <div class="bar violet"><span style="width:${pct(u, amt)}%"></span></div>
+      <div class="note">${left > 0 ? `${money(left)} left. Log it with the ${esc(o.emoji)} ${esc(o.name)} button in Quick add.` : left === 0 ? 'All used — lovely planning 🌟' : `A little over (${money(-left)}) — savings has it covered 💛`}</div></div>`;
+  }).join('') + `</div>`;
+}
+function normalizeOneOffs(list, prev = []) {
+  return (list || []).map(o => {
+    const old = prev.find(x => x.id && (x.id === o.id || x.name === o.name)) || {};
+    const kind = o.kind || old.kind || (/treat fund/i.test(o.name || '') ? 'move' : 'spend');
+    return { id: o.id || old.id || 'oo_' + uid(), name: o.name, amount: +o.amount || 0, kind,
+      emoji: o.emoji || old.emoji || (kind === 'move' ? '🎁' : /christmas|xmas/i.test(o.name || '') ? '🎄' : '📌') };
+  });
+}
+
 function banners() {
   const s = D.settings, n = D.notice, tdy = today();
   let h = '';
@@ -582,6 +619,7 @@ function monthCard() {
   const extras = [];
   if (m.toTreat > 0) extras.push(`🎁 ${money(m.toTreat)} went to your Treat Fund this month!`);
   if (m.owedAdded) extras.push(`🤝 ${money(m.owedAdded)} added to “owed to me” this month.`);
+  if (m.moved) extras.push(`➡️ ${money(m.moved)} moved from savings into your Treat Fund 🎉`);
   if (m.oneSav || m.oneTreat) extras.push(`✈️ One-offs: ${[m.oneSav ? money(m.oneSav) + ' from savings' : '', m.oneTreat ? money(m.oneTreat) + ' from the Treat Fund' : ''].filter(Boolean).join(' · ')}`);
   if (m.recurring) extras.push(`🔁 ${money(m.recurring)} of recurring costs, counted automatically.`);
   extras.push(m.count >= 5 ? `✨ You logged ${m.count} things this month — lovely tracking.` : m.topups ? `🌼 Your pots topped up ${m.topups} ${m.topups === 1 ? 'time' : 'times'} this month.` : '🌱 A fresh month, ready to go.');
@@ -614,6 +652,8 @@ function wire() {
       const diff = round2(C.bal.treat - before);
       toast(`Added to ${nice(date)} — all updated ✨${diff && pot !== 'oneoff:treat' ? ` (Treat Fund ${diff > 0 ? 'up' : 'tweaked by'} ${money(Math.abs(diff))})` : ''}`);
     } else if (mine != null) { toast(`${pick(cheers)} Your share ${money(mine)} counts — ${money(e.amount - mine)} added to owed to you 🤝`); }
+    else if (oneOffById(pot.slice(7))) { const o = oneOffById(pot.slice(7)), left = round2(o.amount - (C.used[o.id] || 0));
+      toast(left >= 0 ? `${o.emoji} Logged! ${money(left)} left for ${o.name}.` : `${o.emoji} Logged! Savings has the extra covered 💛`); if (left >= 0) confetti(); }
     else if (pot.startsWith('oneoff:')) toast(`${pick(cheers)} Kept out of your weekly pots.`);
     else if (fp && pot === fp.id) {
       const left = C.pots[fp.id];
@@ -621,6 +661,11 @@ function wire() {
     } else toast(pick(cheers));
   });
   $('#quickForm').onsubmit = e => e.preventDefault();
+  document.querySelectorAll('[data-move]').forEach(b => b.onclick = () => {
+    const o = oneOffById(b.dataset.move), left = round2(o.amount - (C.used[o.id] || 0)); if (!(left > 0)) return;
+    addEntry(left, 'move:' + o.id, '', today()); recalc(); render();
+    toast(`➡️ ${money(left)} moved into your Treat Fund! Now ${money(C.bal.treat)} 🎉`); confetti();
+  });
 
   // ✏️ fix any pot
   document.querySelectorAll('[data-fix]').forEach(b => b.onclick = () => { fixPot = b.dataset.fix; render(); $('#fixAmt').focus(); $('#fixAmt').select(); });
@@ -751,7 +796,7 @@ function previewPlan(P) {
     ${P.pots.map(p => `<p>${esc(p.emoji)} <strong>${esc(p.name)}</strong> ${money(p.weekly)}${p.shared ? ` · 👫 shared (your share ${P.myShare ?? 50}%)` : ''}${p.type === 'fun' ? ' · resets weekly' : ' · carries over'}</p>`).join('')}
     <p class="note">Total ${money(total)} a week.</p>
     <h3>Recurring</h3><p>${rec}</p>
-    ${P.balances ? `<h3>Balances</h3><p>💰 Savings ${money(P.balances.savings)} · 🎁 Treat Fund ${money(P.balances.treat)} · 🤝 Owed to me ${money(P.balances.owed)}</p>` : ''}
+    ${P.balances ? `<h3>Balances</h3><p>${D.planApplied ? 'Keeping your current balances (a plan file only sets them the first time).' : `💰 Savings ${money(P.balances.savings)} · 🎁 Treat Fund ${money(P.balances.treat)} · 🤝 Owed to me ${money(P.balances.owed)}`}</p>` : ''}
     <h3>Treat Fund</h3><p>Goal ${money(P.treatGoal)} by ${P.treatDate ? nice(P.treatDate) + ' ' + P.treatDate.slice(0, 4) : '—'}</p>
     <h3>Planned one-offs</h3><p>${(P.oneOffs || []).map(o => `${esc(o.name)} ${money(o.amount)}`).join(' · ') || 'none'}</p>
     <p class="note">The new pots start this week. You can change any figure in Settings afterwards.</p></div>
@@ -771,10 +816,12 @@ function applyPlan(P) {
   }
   s.pots = P.pots.map(p => ({ id: p.id, name: p.name, emoji: p.emoji || '🪴', type: p.type === 'fun' ? 'fun' : 'build', shared: !!p.shared, note: p.note || '' }));
   D.plans = D.plans.filter(p => p.from < wk).concat({ from: wk, income: +P.income, weekly, recurring: (P.recurring || []).map(r => ({ name: r.name, amount: +r.amount, every: r.every || 'week' })) });
+  const prevOneOffs = s.oneOffs;
   for (const k of ['myShare', 'paybackOn', 'funFloor', 'treatGoal', 'treatDate', 'oneOffs']) if (P[k] !== undefined) s[k] = P[k];
+  s.oneOffs = normalizeOneOffs(s.oneOffs, prevOneOffs);
   recalc();
-  if (P.balances) for (const k of ['savings', 'treat', 'owed']) if (isFinite(+P.balances[k]) && Math.abs(+P.balances[k] - C.bal[k]) > 0.004) addFix(k, +P.balances[k]);
-  D.confirmed = false; D.planLoaded = true;
+  if (P.balances && !D.planApplied) for (const k of ['savings', 'treat', 'owed']) if (isFinite(+P.balances[k]) && Math.abs(+P.balances[k] - C.bal[k]) > 0.004) addFix(k, +P.balances[k]);
+  D.confirmed = false; D.planLoaded = true; D.planApplied = true;
   save();
 }
 
@@ -819,7 +866,7 @@ function openSettings() {
     <div class="field"><label>Treat Fund goal</label>${num('s_goal', s.treatGoal)}</div>
     <div class="field"><label>Treat Fund date<small>The big day you’re saving for</small></label><input type="date" id="s_tdate" value="${esc(s.treatDate)}"></div>
     <div class="field"><label>🤝 Owed to me<small>Never counted as spendable</small></label>${num('s_owed', b.owed)}</div>
-    <h3>Planned one-offs from savings</h3><div id="oneoffs">${s.oneOffs.map(oneOffRow).join('')}</div>
+    <h3>Planned one-offs from savings</h3><p class="note">Each one gets its own little budget with a countdown. Christmas-type ones get a Quick add button; a Treat Fund top-up gets a one-tap “Move” button.</p><div id="oneoffs">${s.oneOffs.map(oneOffRow).join('')}</div>
     <button type="button" class="linkish" id="addOneOff">+ add one</button>
     <h3>Plan start</h3>
     <div class="field"><label>Plan starts on<small>Changing this restarts the plan from today’s balances and clears entries</small></label><input type="date" id="s_start" value="${esc(s.startDate)}"></div>
@@ -864,7 +911,10 @@ function openSettings() {
   };
 }
 function oneOffRow(o) {
-  return `<div class="oneoff"><input data-oo-name value="${esc(o.name)}" placeholder="What for"><input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-rm-row aria-label="Remove">✕</button></div>`;
+  const k = o.kind || 'spend';
+  return `<div class="oneoff" data-oo-id="${esc(o.id || '')}"><input data-oo-emoji value="${esc(o.emoji || '')}" aria-label="Emoji" placeholder="🎄"><input data-oo-name value="${esc(o.name)}" placeholder="What for">
+    <input data-oo-amt type="number" step="0.01" value="${esc(o.amount)}" placeholder="$"><button type="button" class="linkish" data-rm-row aria-label="Remove">✕</button>
+    <select data-oo-kind aria-label="What kind"><option value="spend"${k === 'spend' ? ' selected' : ''}>Spend from savings (gets a Quick add button)</option><option value="move"${k === 'move' ? ' selected' : ''}>Move into the Treat Fund</option></select></div>`;
 }
 function recRow(r) {
   const opt = v => `<option value="${v}"${(r.every || 'week') === v ? ' selected' : ''}>a ${v}</option>`;
@@ -901,14 +951,16 @@ function collectSettings() {
   fix('treat', n('s_treat', C.bal.treat), C.bal.treat);
   fix('owed', n('s_owed', C.bal.owed), C.bal.owed);
   s.treatGoal = n('s_goal', s.treatGoal); s.treatDate = $('#s_tdate').value || s.treatDate;
-  s.oneOffs = [...document.querySelectorAll('.oneoff')].map(r => ({ name: r.querySelector('[data-oo-name]').value.trim(), amount: parseFloat(r.querySelector('[data-oo-amt]').value) || 0 }))
-    .filter(o => o.name || o.amount);
+  s.oneOffs = normalizeOneOffs([...document.querySelectorAll('.oneoff')].map(r => ({ id: r.dataset.ooId || undefined, emoji: r.querySelector('[data-oo-emoji]').value.trim(),
+    name: r.querySelector('[data-oo-name]').value.trim(), amount: parseFloat(r.querySelector('[data-oo-amt]').value) || 0, kind: r.querySelector('[data-oo-kind]').value }))
+    .filter(o => o.name || o.amount), s.oneOffs);
   save();
 }
 
 /* ---------- start! ---------- */
 function start() {
   D = migrate(D) || defaultData(today());
+  D.settings.oneOffs = normalizeOneOffs(D.settings.oneOffs, D.settings.oneOffs);
   const cur = mondayOf(today());
   if (D.lastSeenMonday && cur > D.lastSeenMonday && cur > mondayOf(D.settings.startDate)) {
     const weeks = Math.round(daysBetween(D.lastSeenMonday, cur) / 7);
